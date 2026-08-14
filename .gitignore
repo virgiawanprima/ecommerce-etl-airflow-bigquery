@@ -1,0 +1,15 @@
+.env
+config/keys/*.json
+logs/
+airflow.cfg
+airflow.db
+standalone_admin_password.txt
+data/raw/*.csv
+data/processed/*
+docs/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+.vscode/

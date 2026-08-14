@@ -1,0 +1,18 @@
+# Secrets — never send to Docker daemon build context
+config/keys/
+.env
+
+# Runtime data & logs (mounted as volumes, not baked into image)
+data/
+logs/
+
+# Version control & IDE
+.git/
+.gitignore
+.vscode/
+
+# Python artifacts
+__pycache__/
+*.pyc
+.venv/
+venv/
