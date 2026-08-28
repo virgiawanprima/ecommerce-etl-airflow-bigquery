@@ -131,7 +131,7 @@ DAG `olist_etl_pipeline` menjalankan 5 task berurutan:
 |-----------------|---------------|--------------------------------------|
 | extract         | ~5            | Read 9 CSV + query watermark BQ      |
 | validate_schema | ~2            | Konfirmasi kolom                     |
-| transform       | 3             | Cleaning + join + PII hash           |
+| transform       | ~3            | Cleaning + join + PII hash           |
 | qdc_validation  | 4             | 4 dimensi + fail-fast                |
 | load            | 37            | Upload 6 tabel ke BigQuery           |
 | **Total**       | **57**        | (di bawah ambang 900 detik)          |
