@@ -122,7 +122,7 @@ DAG `olist_etl_pipeline` menjalankan 5 task berurutan:
 | Aspek     | Ambang Batas (Bab 1.3) | Hasil Aktual                  | Status |
 |-----------|------------------------|-------------------------------|----------|
 | Volume    | >100.000 record/30 min | 112.650 record (1 eksekusi)   | ✅ LULUS |
-| Velocity  | <15 menit/eksekusi     | 37-77 detik                   | ✅ LULUS |
+| Velocity  | <15 menit/eksekusi     | ~60 detik (full load)         | ✅ LULUS |
 | Variety   | ≥95% (QDC pass rate)   | 100% (0 fail-fast)            | ✅ LULUS |
 
 **Per task (full load, environment: CeleryExecutor 4 worker):**
