@@ -210,7 +210,7 @@ File self-check: `dags/utils/self_check.py` (assert-based, no framework — sesu
 ```
 olist-etl-pipeline/
 ├── dags/
-│   ├── olist_etl_pipeline.py    # DAG utama (5 tasks)
+│   ├── olist_etl_pipeline.py    # DAG utama (5 tasks: extract, validate_schema, transform, qdc_validation, load)
 │   └── utils/
 │       ├── qdc.py                # 4-dimension QDC
 │       ├── pii.py                # SHA-256 hashing
