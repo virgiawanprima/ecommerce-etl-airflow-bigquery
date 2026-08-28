@@ -13,11 +13,8 @@ Architecture:
                  apply watermark filter to fact_sales for incremental runs
     - QDC      : run 4-dimension quality checks, fail-fast at >5% failure
     - Load     : write fact_sales + 5 dim tables to BigQuery (olist_dw)
+                 dim tables: WRITE_TRUNCATE (full refresh)
                  fact_sales: WRITE_TRUNCATE (first run) / WRITE_APPEND (incremental)
-                 Non-partitioned for BigQuery Sandbox compatibility
-                 (partitioned tables fail silently: load job succeeds but 0 rows visible).
-                 Partitioned version validated for production via Storage Write API.
-                 dim tables: always WRITE_TRUNCATE (full refresh)
 
 Incremental load strategy (Bab 3.4.3):
     - Watermark = MAX(order_date) queried from fact_sales before extract
