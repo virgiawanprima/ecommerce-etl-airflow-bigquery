@@ -214,7 +214,8 @@ olist-etl-pipeline/
 │   └── utils/
 │       ├── qdc.py                # 4-dimension QDC
 │       ├── pii.py                # SHA-256 hashing
-│       └── io_helpers.py         # Parquet utilities
+│       ├── io_helpers.py         # Parquet utilities
+│       └── self_check.py         # Unit self-check (assert-based)
 ├── data/
 │   ├── raw/                      # 9 CSV Olist
 │   ├── processed/                # Parquet intermediate
