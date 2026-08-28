@@ -174,8 +174,11 @@ DAG `olist_etl_pipeline` menjalankan 5 task berurutan:
    ```
 
 6. Trigger DAG `olist_etl_pipeline`:
-   - Full load: run id `full_load` (otomatis mode full saat tabel kosong)
-   - Incremental: run id `incremental_v1` (mode incremental saat tabel sudah ada)
+   - Run pertama otomatis menjadi **full load** (`WRITE_TRUNCATE`) karena tabel masih kosong
+   - Run berikutnya otomatis menjadi **incremental** (`WRITE_APPEND`) karena watermark `MAX(order_date)` sudah terisi; hanya baris baru yang di-append
+   ```bash
+   docker compose exec airflow-scheduler airflow dags trigger olist_etl_pipeline
+   ```
 
 7. Verifikasi BigQuery:
    ```sql
