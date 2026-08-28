@@ -78,8 +78,7 @@ def olist_etl_pipeline():
 
     @task
     def extract() -> dict[str, str]:
-        """
-        Read each CSV into a parquet snapshot in PROCESSED_DATA_DIR.
+        """Read each CSV into a parquet snapshot in PROCESSED_DATA_DIR.
 
         Before reading CSVs, queries BigQuery for the current watermark
         (MAX order_date in fact_sales). The watermark is stored as a
