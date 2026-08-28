@@ -136,33 +136,6 @@ DAG `olist_etl_pipeline` menjalankan 5 task berurutan:
 | load            | 37            | Upload 6 tabel ke BigQuery           |
 | **Total**       | **57**        | (di bawah ambang 900 detik)          |
 
-## 🔍 Temuan Menarik (Problem Solving)
-
-Salah satu tantangan teknis yang ditemui selama development: **load job ke tabel BigQuery partitioned gagal secara silent di Sandbox** — job dilaporkan sukses dengan `output_rows=112.650` tapi data tidak muncul saat dikueri (0 rows). Investigasi dilakukan dengan tiga jalur independen:
-
-| Jalur                            | Kredensial       | Hasil               |
-|----------------------------------|------------------|---------------------|
-| `load_table_from_dataframe` SDK  | Service account  | Job sukses, 0 rows  |
-| `bq load` CLI (Cloud Shell)      | User account     | Job sukses, 0 rows  |
-| `INSERT` DML (`bq query`)        | User account     | Error eksplisit     |
-
-Kesimpulan: limitasi *undocumented* BigQuery Sandbox terhadap load job ke tabel partitioned (di luar limitasi resmi DML/streaming). Solusi: gunakan tabel non-partitioned untuk lingkungan Sandbox, dengan rencana validasi ulang via BigQuery Storage Write API di production.
-
-Investigasi ini dilakukan melalui tiga jalur independen dengan hasil yang konsisten:
-1. **Python SDK** (`load_table_from_dataframe`): `job.output_rows=112.650`, `job.errors=None`, tapi `SELECT COUNT(*)` mengembalikan 0 rows.
-2. **`bq load` CLI** (Cloud Shell): report "Upload complete" + "DONE", tapi query tetap 0 rows.
-3. **DML `INSERT`** (sebagai pembanding): menghasilkan error eksplisit `DML queries are not allowed in the free tier` — bukti bahwa BigQuery *menolak* operasi yang memang tidak didukung di Sandbox, namun tidak memberikan penolakan serupa untuk load job ke tabel partitioned.
-
-Perilaku ini menyingkirkan kemungkinan penyebab lainnya: bukan masalah permission (berbeda kredensial tetap gagal), bukan masalah tipe data (skema eksplisit dengan `DATE` tetap gagal), dan bukan masalah library (dua jalur teknis independen tetap gagal identik). Lebih lanjut, `INFORMATION_SCHEMA.PARTITIONS` tidak menunjukkan partisi apa pun setelah load "sukses", mengonfirmasi data tidak pernah tersimpan.
-
-**Dampak pada implementasi:** tabel `fact_sales` menggunakan non-partitioned format agar berfungsi normal di seluruh skenario pengujian. Untuk lingkungan production dengan billing aktif, partitioning tetap direkomendasikan (melalui BigQuery Storage Write API).
-
-**Dampak pada hasil:**
-- **Volume:** affect tidak ada — 112.650 rows tetap diproses dan tersimpan sempurna.
-- **Velocity:** affect tidak ada — 37-77 detik tetap di bawah ambang 15 menit.
-- **Variety (QDC):** affect tidak ada — 100% pass rate.
-- Satu-satunya trade-off adalah optimasi *query performance* pada tabel bertahun (partition pruning) yang tidak tersedia di Sandbox, dan menjadi bahan rekomendasi penelitian lanjutan di Bab V.
-
 ## 🛠️ Cara Menjalankan Proyek (Local Setup)
 
 ### Prasyarat
