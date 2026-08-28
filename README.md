@@ -186,6 +186,25 @@ DAG `olist_etl_pipeline` menjalankan 5 task berurutan:
    -- Expected: 112.650
    ```
 
+## ✅ Verifikasi & Test Suite
+
+Jalankan seluruh verifikasi otomatis (unit self-check + DAG registration + BigQuery state):
+
+```bash
+make verify
+```
+
+Setara dengan test suite untuk proyek ini (tanpa framework eksternal):
+
+| Target | Cakupan |
+|--------|---------|
+| `make dag-check` | Syntax + registrasi 5 task DAG + `pip check` (integritas dependency) |
+| `make self-check` | Unit test QDC 4 dimensi (fail-fast, threshold) + hashing PII (12 assertions) |
+| `make bq-verify` | Row count 6 tabel star schema di BigQuery |
+| `make run` | Trigger satu run end-to-end (idempotent) |
+
+File self-check: `dags/utils/self_check.py` (assert-based, no framework — sesuai best practice test ringan untuk logic non-trivial).
+
 ## 📁 Struktur Proyek
 
 ```
