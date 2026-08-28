@@ -28,17 +28,14 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 from datetime import datetime, timedelta
 
 import pandas as pd
 from airflow.sdk import dag, task
 
-sys.path.insert(0, os.path.dirname(__file__))
-
-from utils.qdc import run_qdc  # noqa: E402
-from utils.pii import hash_columns  # noqa: E402
-from utils.io_helpers import write_parquet as _write  # noqa: E402
+from utils.qdc import run_qdc
+from utils.pii import hash_columns
+from utils.io_helpers import write_parquet as _write
 
 logger = logging.getLogger(__name__)
 
