@@ -224,7 +224,11 @@ olist-etl-pipeline/
 ├── logs/                         # Airflow logs (gitignored)
 ├── docker-compose.yml            # 7 services: webserver, scheduler, worker, dag-processor, triggerer, postgres, redis
 ├── Dockerfile                    # apache/airflow:3.0.6 + dependencies
-└── .env                          # Environment variables (gitignored)
+├── requirements.txt              # Python dependencies (pandas, bigquery, pyarrow, dll.)
+├── Makefile                      # make verify / make check / make run / make bq-verify
+├── .dockerignore                 # Mengecualikan secrets & data dari build context
+├── .env                          # Environment variables (gitignored)
+└── .gitignore
 ```
 
 ## 🎓 Konteks Akademik
