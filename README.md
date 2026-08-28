@@ -134,7 +134,7 @@ DAG `olist_etl_pipeline` menjalankan 5 task berurutan:
 | transform       | ~3            | Cleaning + join + PII hash           |
 | qdc_validation  | ~4            | 4 dimensi + fail-fast                |
 | load            | ~40           | Upload 6 tabel ke BigQuery           |
-| **Total**       | **57**        | (di bawah ambang 900 detik)          |
+| **Total**       | **~60**       | (di bawah ambang 900 detik)          |
 
 ## 🛠️ Cara Menjalankan Proyek (Local Setup)
 
