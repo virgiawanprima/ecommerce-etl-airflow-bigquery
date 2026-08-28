@@ -220,8 +220,8 @@ olist-etl-pipeline/
 │   ├── raw/                      # 9 CSV Olist
 │   ├── processed/                # Parquet intermediate
 │   └── sim/                      # Data sintetis (opsional, untuk velocity test)
-├── config/keys/                  # GCP service account key
-├── logs/                         # Airflow logs
+├── config/keys/                  # GCP service account key (gitignored)
+├── logs/                         # Airflow logs (gitignored)
 ├── docker-compose.yml            # 7 services: webserver, scheduler, worker, dag-processor, triggerer, postgres, redis
 ├── Dockerfile                    # apache/airflow:3.0.6 + dependencies
 └── .env                          # Environment variables (gitignored)
