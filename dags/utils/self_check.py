@@ -1,0 +1,94 @@
+"""
+Self-check (assert-based) for non-trivial pipeline logic.
+
+Run inside the Airflow container (has pandas + project utils):
+
+    docker compose exec airflow-scheduler python /opt/airflow/dags/utils/self_check.py
+
+Verifies QDC (4 dimensions + fail-fast threshold) and PII hashing
+without needing BigQuery or Airflow orchestration.
+"""
+from __future__ import annotations
+
+import hashlib
+import sys
+from pathlib import Path
+
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from qdc import run_qdc  # noqa: E402
+from pii import hash_columns  # noqa: E402
+
+PASS = 0
+
+
+def check(name: str, cond: bool) -> None:
+    global PASS
+    assert cond, f"FAIL: {name}"
+    PASS += 1
+    print(f"  ok: {name}")
+
+
+# ---- QDC: completeness / uniqueness / consistency / validity ----
+df = pd.DataFrame(
+    {
+        "order_id": ["o1", "o1", "o2", "o3", None],
+        "order_item_id": [1, 2, 1, 1, 1],
+        "price": [10.5, 20.0, None, -5.0, 7.0],
+        "freight_value": [3.0, 4.0, 5.0, 6.0, 7.0],
+    }
+)
+
+passed, failed, result = run_qdc(
+    df,
+    "fact_sales",
+    required_cols=["order_id", "order_item_id"],
+    key_cols=["order_id", "order_item_id"],
+    expected_dtypes={"price": "float64", "freight_value": "float64"},
+    validity_rules={"price": lambda s: s >= 0},
+)
+
+check("total records = 5", result.total_records == 5)
+check("passed records = 2", result.passed_records == 2)  # row0, row1 pass
+check("failed records = 3", result.failed_records == 3)  # dup-key, null price, negative price, null key
+check("success_rate = 0.4", abs(result.success_rate - 0.4) < 1e-9)
+check("triggers fail-fast (>5%)", result.triggers_fail_fast is True)
+check("meets_target (>=95%) is False", result.meets_target is False)
+check("failed rows have reason columns", {"failed_completeness", "failed_uniqueness", "failed_consistency", "failed_validity"}.issubset(failed.columns))
+
+# ---- QDC: clean data passes at 100% ----
+clean = pd.DataFrame(
+    {
+        "order_id": ["o1", "o2"],
+        "order_item_id": [1, 1],
+        "price": [10.0, 20.0],
+        "freight_value": [1.0, 2.0],
+    }
+)
+_, _, res_clean = run_qdc(
+    clean, "fact_sales",
+    required_cols=["order_id", "order_item_id"],
+    key_cols=["order_id", "order_item_id"],
+    expected_dtypes={"price": "float64"},
+    validity_rules={"price": lambda s: s >= 0},
+)
+check("clean data: 100% pass", res_clean.success_rate == 1.0 and res_clean.triggers_fail_fast is False)
+
+# ---- PII: SHA-256 hashing ----
+customers = pd.DataFrame(
+    {
+        "customer_id": ["c1", "c2"],
+        "customer_unique_id": ["alice@example.com", "bob@example.com"],
+        "customer_city": ["Sao Paulo", "Rio"],
+    }
+)
+hashed = hash_columns(customers.copy(), ["customer_unique_id"])
+expected_hash = hashlib.sha256("alice@example.com".encode("utf-8")).hexdigest()
+check("PII column is hashed", hashed.loc[0, "customer_unique_id"] == expected_hash)
+check("PII hash is 64 hex chars", len(hashed.loc[1, "customer_unique_id"]) == 64)
+check("non-PII column unchanged", hashed.loc[0, "customer_city"] == "Sao Paulo")
+check("original df not mutated", customers.loc[0, "customer_unique_id"] == "alice@example.com")
+
+print(f"\nALL {PASS} CHECKS PASSED")

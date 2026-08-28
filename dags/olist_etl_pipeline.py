@@ -100,7 +100,7 @@ def olist_etl_pipeline():
             for row in client.query(wm_query).result():
                 watermark = row.wm  # datetime.date | None
         except Exception as exc:
-            # Table absent (first run) or any BQ error → fall back to full load
+            # Table absent (first run) or any BQ error -> fall back to full load
             logger.info(f"Watermark query skipped ({type(exc).__name__}): full load mode.")
             watermark = None
 
@@ -235,7 +235,7 @@ def olist_etl_pipeline():
         # Grain = order item; natural key (order_id, order_item_id).
         # The same product may appear multiple times in one order (bulk/split
         # shipments), so product_id alone cannot form part of the unique key
-        # (grain violation detected by QDC uniqueness dimension — see Bab IV).
+        # (grain violation detected by QDC uniqueness dimension - see Bab IV).
 
         orders_ts = orders["order_purchase_timestamp"]  # already datetime
 
@@ -263,7 +263,7 @@ def olist_etl_pipeline():
         fact_sales["order_purchase_timestamp"] = pd.to_datetime(
             fact_sales["order_purchase_timestamp"]
         )
-        # order_date (DATE) — partition key for BigQuery TimePartitioning
+        # order_date (DATE) - source for watermark and time-based analytics
         fact_sales["order_date"] = fact_sales["order_purchase_timestamp"].dt.date
         fact_sales["date_key"] = (
             fact_sales["order_purchase_timestamp"].dt.strftime("%Y%m%d")
@@ -362,8 +362,12 @@ def olist_etl_pipeline():
     def load(paths: dict[str, str]) -> None:
         """Load clean star-schema tables into BigQuery (asia-southeast2).
 
-        Dimension tables: always full refresh (WRITE_TRUNCATE).
-        fact_sales: full = WRITE_TRUNCATE, incremental = WRITE_APPEND.
+        Dimension tables: always WRITE_TRUNCATE (full refresh; they are small
+        and must reflect any upstream SCD changes).
+
+        fact_sales:
+          - First run  (is_incremental=False): WRITE_TRUNCATE (full reload)
+          - Subsequent (is_incremental=True):  WRITE_APPEND (append new rows)
         """
         from google.cloud import bigquery
 
@@ -374,15 +378,15 @@ def olist_etl_pipeline():
 
         client = bigquery.Client(project=GCP_PROJECT_ID, location=BIGQUERY_LOCATION)
         dataset_ref = f"{GCP_PROJECT_ID}.{BIGQUERY_DATASET}"
-        fact_table_id = f"{dataset_ref}.fact_sales"
 
         for table_name, path in paths.items():
             if table_name.startswith("_"):
                 continue
             df = pd.read_parquet(path)
+
             if table_name == "fact_sales":
                 # Convert to Python date objects (not datetime64[ns]) to avoid
-                # BigQuery SDK bug where datetime64 is misinterpreted as INTEGER
+                # the BigQuery SDK coercion of the DATE column.
                 df["order_date"] = pd.to_datetime(df["order_date"]).dt.date
 
             table_id = f"{dataset_ref}.{table_name}"
@@ -391,38 +395,22 @@ def olist_etl_pipeline():
                 if is_incremental and table_name == "fact_sales"
                 else bigquery.WriteDisposition.WRITE_TRUNCATE
             )
-            if table_name == "fact_sales":
-                schema = [
-                    bigquery.SchemaField("order_id", "STRING"),
-                    bigquery.SchemaField("order_item_id", "INT64"),
-                    bigquery.SchemaField("customer_id", "STRING"),
-                    bigquery.SchemaField("product_id", "STRING"),
-                    bigquery.SchemaField("seller_id", "STRING"),
-                    bigquery.SchemaField("order_date", "DATE"),
-                    bigquery.SchemaField("date_key", "INT64"),
-                    bigquery.SchemaField("price", "FLOAT64"),
-                    bigquery.SchemaField("freight_value", "FLOAT64"),
-                ]
-                job_config = bigquery.LoadJobConfig(
-                    write_disposition=write_disp,
-                    schema=schema,
-                    # Non-partitioned table for BigQuery Sandbox compatibility.
-                    # Partitioned tables fail silently in Sandbox (load job reports
-                    # success but 0 rows visible). Validated via Python SDK + bq load CLI.
-                )
-            else:
-                job_config = bigquery.LoadJobConfig(write_disposition=write_disp)
+            job_config = bigquery.LoadJobConfig(write_disposition=write_disp)
             client.load_table_from_dataframe(df, table_id, job_config=job_config).result()
             mode = "APPEND" if is_incremental and table_name == "fact_sales" else "TRUNCATE"
             logger.info(f"Loaded {len(df):,} rows into {table_id} ({mode})")
 
-        total = next(iter(client.query(f"SELECT COUNT(*) AS n FROM `{fact_table_id}`").result())).n
+        # Summary row-count of fact_sales for observability / Bab IV evaluation
+        fact_table_id = f"{dataset_ref}.fact_sales"
+        total = next(
+            iter(client.query(f"SELECT COUNT(*) AS n FROM `{fact_table_id}`").result())
+        ).n
         logger.info(f"fact_sales now has {total:,} rows ({'APPEND' if is_incremental else 'REPLACE'})")
 
     # Task wiring (Bab 3.5.2): extract -> validate_schema -> transform
     # -> qdc_validation -> load. Each step passes its output dict to the next
-    # via TaskFlow XCom arguments (Airflow 3 @task decorators register a task
-    # only when the decorated function is called).
+    # via TaskFlow XCom arguments. Airflow 3 @task decorators register a task
+    # only when the decorated function is called here.
     extracted = extract()
     validated = validate_schema(extracted)
     transformed = transform(validated)
@@ -430,4 +418,7 @@ def olist_etl_pipeline():
     load(qdc)
 
 
-olist_etl_pipeline()
+# IMPORTANT: Airflow 3.x scheduler discovers DAGs assigned to module-level
+# global variables. Assigning the constructed DAG to a global named `dag`
+# is the idiomatic registration pattern.
+dag = olist_etl_pipeline()
