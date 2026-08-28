@@ -26,7 +26,7 @@ Membangun pipeline ETL hybrid cloud-native yang menangani data e-commerce volume
 
 - **Data Source:** [Olist Brazilian E-Commerce Dataset (Kaggle)](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) — 9 CSV publik
 - **Data Model:** Star Schema
-  - **Fact Table:** `fact_sales` (112.650 baris, partitioned by `order_date`)
+  - **Fact Table:** `fact_sales` (112.650 baris)
   - **Dimension Tables:** `dim_customers` (99.441), `dim_products` (32.951), `dim_sellers` (3.095), `dim_orders` (99.441), `dim_date` (634)
 
 ```mermaid
