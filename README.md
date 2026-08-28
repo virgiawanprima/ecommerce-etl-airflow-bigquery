@@ -1,6 +1,6 @@
 # 🚀 Olist E-Commerce Automated ETL Pipeline
 
-> Pipeline ETL otomatis berbasis Apache Airflow untuk memproses 112.650 baris data transaksi e-commerce Brazil (Olist) menjadi Star Schema di Google BigQuery, lengkap dengan incremental load, QDC, dan PII masking sesuai UU PDP.
+> Pipeline ETL otomatis berbasis Apache Airflow untuk memproses 112.650 baris data transaksi e-commerce Brazil (Olist) menjadi Star Schema di Google BigQuery, lengkap dengan incremental load (watermark), QDC, dan PII masking sesuai UU PDP.
 
 ## 🏗️ Arsitektur Data & Teknologi
 
