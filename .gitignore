@@ -6,7 +6,9 @@ airflow.db
 standalone_admin_password.txt
 data/raw/*.csv
 data/processed/*
-docs/
+data/_noise_backup/
+# Catatan: docs/ sengaja TIDAK diabaikan agar bukti pengujian Bab IV
+# ikut tersimpan dalam version control.
 __pycache__/
 *.pyc
 .venv/

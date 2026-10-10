@@ -1,28 +1,28 @@
 """
 DAG: olist_etl_pipeline
 
-Implements the 5-task hybrid cloud-native ETL pipeline described in
-skripsi Bab 3.4.3 and 3.5.2:
+Menerapkan pipeline ETL hybrid cloud-native 5 task yang dijelaskan pada
+skripsi Bab 3.4.3 dan 3.5.2:
 
     extract -> validate_schema -> transform -> qdc_validation -> load
 
-Architecture:
-    - Extract  : read 9 Olist CSVs; query BigQuery watermark for incremental mode
-    - Validate : confirm expected columns/schema are present for all 9 tables
-    - Transform: clean, join into star schema shape, hash PII columns;
-                 apply watermark filter to fact_sales for incremental runs
-    - QDC      : run 4-dimension quality checks, fail-fast at >5% failure
-    - Load     : write fact_sales + 5 dim tables to BigQuery (olist_dw)
-                 dim tables: WRITE_TRUNCATE (full refresh)
-                 fact_sales: WRITE_TRUNCATE (first run) / WRITE_APPEND (incremental)
+Arsitektur:
+    - Extract  : membaca 9 CSV Olist; kueri watermark BigQuery untuk mode incremental
+    - Validate : memastikan kolom/skema yang diharapkan tersedia pada 9 tabel
+    - Transform: membersihkan, menggabungkan ke bentuk star schema, meng-hash kolom PII;
+                 menerapkan filter watermark pada fact_sales untuk run incremental
+    - QDC      : menjalankan pemeriksaan kualitas 4 dimensi, fail-fast bila gagal >5%
+    - Load     : menulis fact_sales + 5 tabel dimensi ke BigQuery (olist_dw)
+                 tabel dimensi: WRITE_TRUNCATE (refresh penuh)
+                 fact_sales: WRITE_TRUNCATE (run pertama) / WRITE_APPEND (incremental)
 
-Incremental load strategy (Bab 3.4.3):
-    - Watermark = MAX(order_date) queried from fact_sales before extract
-    - First run (empty table / table absent): full load, WRITE_TRUNCATE
-    - Subsequent runs: filter orders where order_purchase_timestamp::date > watermark
-                       then append only new fact rows, WRITE_APPEND
+Strategi incremental load (Bab 3.4.3):
+    - Watermark = MAX(order_date) yang dikueri dari fact_sales sebelum extract
+    - Run pertama (tabel kosong / tabel belum ada): full load, WRITE_TRUNCATE
+    - Run berikutnya: filter order dengan order_purchase_timestamp::date > watermark
+                     lalu hanya append baris fact baru, WRITE_APPEND
 
-Retry policy: 3 retries, 5 minute delay, per Bab 3.4.3.
+Kebijakan retry: 3 kali percobaan, jeda 5 menit, mengacu Bab 3.4.3.
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "gen-lang-client-0814065913")
 BIGQUERY_DATASET = os.environ.get("BIGQUERY_DATASET", "olist_dw")
 BIGQUERY_LOCATION = os.environ.get("BIGQUERY_LOCATION", "asia-southeast2")
 
-# Source file map, per Lampiran 1
+# Peta berkas sumber, mengacu Lampiran 1
 CSV_FILES = {
     "orders": "olist_orders_dataset.csv",
     "order_items": "olist_order_items_dataset.csv",
@@ -67,8 +67,8 @@ default_args = {
 
 @dag(
     dag_id="olist_etl_pipeline",
-    description="Hybrid cloud-native ETL: Olist CSV -> star schema -> BigQuery",
-    schedule=None,  # trigger manually during dev; '@daily' for production
+    description="ETL hybrid cloud-native: Olist CSV -> star schema -> BigQuery",
+    schedule=None,  # dipicu manual saat pengembangan; '@daily' untuk produksi
     start_date=datetime(2026, 2, 1),
     catchup=False,
     default_args=default_args,
@@ -78,18 +78,18 @@ def olist_etl_pipeline():
 
     @task
     def extract() -> dict[str, str]:
-        """Read each CSV into a parquet snapshot in PROCESSED_DATA_DIR.
+        """Membaca tiap CSV menjadi snapshot parquet di PROCESSED_DATA_DIR.
 
-        Before reading CSVs, queries BigQuery for the current watermark
-        (MAX order_date in fact_sales). The watermark is stored as a
-        metadata key '_watermark' in the returned dict so downstream
-        tasks can apply incremental filtering without re-querying BQ.
+        Sebelum membaca CSV, melakukan kueri BigQuery untuk memperoleh watermark
+        terkini (MAX order_date pada fact_sales). Watermark disimpan sebagai
+        metadata key '_watermark' pada dict yang dikembalikan, sehingga task
+        hilir dapat menerapkan filter incremental tanpa perlu kueri ulang BQ.
         """
         from google.cloud import bigquery
 
         os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
 
-        # --- Watermark query (Bab 3.4.3: incremental load logic) ---
+        # --- Kueri watermark (Bab 3.4.3: logika incremental load) ---
         watermark = None
         try:
             client = bigquery.Client(project=GCP_PROJECT_ID, location=BIGQUERY_LOCATION)
@@ -100,28 +100,29 @@ def olist_etl_pipeline():
             for row in client.query(wm_query).result():
                 watermark = row.wm  # datetime.date | None
         except Exception as exc:
-            # Table absent (first run) or any BQ error -> fall back to full load
+            # Tabel belum ada (run pertama) atau error BQ -> turun ke mode full load
             logger.info(f"Watermark query skipped ({type(exc).__name__}): full load mode.")
             watermark = None
 
         load_mode = "incremental" if watermark is not None else "full"
         logger.info(f"Load mode: {load_mode} | watermark: {watermark}")
 
-        # --- Extract all 9 CSVs ---
+        # --- Extract seluruh 9 CSV ---
         paths: dict[str, str] = {}
         sim_dir = os.environ.get("OLIST_SIM_DIR", "/opt/airflow/data/sim")
         for alias, filename in CSV_FILES.items():
             src = os.path.join(RAW_DATA_DIR, filename)
             if not os.path.exists(src):
                 raise FileNotFoundError(
-                    f"Missing source file: {src}. "
-                    f"Place the Olist CSVs in {RAW_DATA_DIR}."
+                    f"Berkas sumber tidak ditemukan: {src}. "
+                    f"Taruh CSV Olist di {RAW_DATA_DIR}."
                 )
             df = pd.read_csv(src)
-            # Velocity simulation (Bab 3.4.4): when OLIST_SIM_DIR contains a
-            # CSV with the SAME filename, its rows are appended so the run
-            # behaves as if new transaction data arrived after the watermark.
-            # Disabled by default (dir empty/absent) -> normal runs unaffected.
+            # Simulasi velocity (Bab 3.4.4): ketika OLIST_SIM_DIR memuat CSV
+            # dengan nama berkas yang SAMA, baris-barisnya di-append sehingga
+            # run berjalan seolah ada data transaksi baru setelah watermark.
+            # Nonaktif secara bawaan (direktori kosong/tidak ada) -> run normal
+            # tidak terpengaruh.
             sim_file = os.path.join(sim_dir, filename)
             if os.path.exists(sim_file):
                 sim_df = pd.read_csv(sim_file)
@@ -135,14 +136,14 @@ def olist_etl_pipeline():
             logger.info(f"Extracted {alias}: {len(df):,} rows -> {out_path}")
             paths[alias] = out_path
 
-        # Store watermark as metadata for downstream tasks
+        # Simpan watermark sebagai metadata untuk task hilir
         paths["_watermark"] = str(watermark) if watermark is not None else ""
         return paths
 
     @task
     def validate_schema(paths: dict[str, str]) -> dict[str, str]:
-        """Confirm each extracted table has its expected key columns present."""
-        # Strip internal metadata key before schema validation
+        """Memastikan setiap tabel hasil extract memiliki kolom kunci yang diharapkan."""
+        # Pisahkan key metadata internal sebelum validasi skema
         meta = {k: v for k, v in paths.items() if k.startswith("_")}
         data_paths = {k: v for k, v in paths.items() if not k.startswith("_")}
 
@@ -162,27 +163,27 @@ def olist_etl_pipeline():
             missing = set(cols) - set(df.columns)
             if missing:
                 raise ValueError(
-                    f"Schema validation failed for '{alias}': missing columns {missing}"
+                    f"Validasi skema gagal untuk '{alias}': kolom hilang {missing}"
                 )
-            logger.info(f"Schema OK: {alias} ({len(df.columns)} columns)")
+            logger.info(f"Schema OK: {alias} ({len(df.columns)} kolom)")
 
-        return {**data_paths, **meta}  # re-attach metadata
+        return {**data_paths, **meta}  # pasang kembali metadata
 
     @task
     def transform(paths: dict[str, str]) -> dict[str, str]:
         """
-        Build star schema tables:
+        Membangun tabel star schema:
           fact_sales, dim_customers, dim_products, dim_sellers, dim_orders, dim_date
 
-        Hashes PII columns (customer_unique_id) per UU PDP.
+        Meng-hash kolom PII (customer_unique_id) mengacu UU PDP.
 
-        Incremental filtering (Bab 3.4.3):
-          When _watermark is set, only order_items rows whose order has an
-          order_purchase_timestamp strictly after the watermark date are
-          included in fact_sales. Dimension tables are always fully rebuilt
-          (they are small and support WRITE_TRUNCATE in the load step).
+        Filter incremental (Bab 3.4.3):
+          Ketika _watermark terisi, hanya baris order_items yang order-nya
+          memiliki order_purchase_timestamp setelah tanggal watermark yang
+          dimasukkan ke fact_sales. Tabel dimensi selalu dibangun ulang penuh
+          (ukurannya kecil dan mendukung WRITE_TRUNCATE pada tahap load).
         """
-        # Extract metadata
+        # Ambil metadata
         watermark_str = paths.pop("_watermark", "")
         watermark = None
         if watermark_str:
@@ -202,13 +203,13 @@ def olist_etl_pipeline():
         products = pd.read_parquet(paths["products"])
         category_translation = pd.read_parquet(paths["category_translation"])
 
-        # --- Dimension tables (always full rebuild) ---
+        # --- Tabel dimensi (selalu dibangun ulang penuh) ---
 
-        # dim_customers (PII hashed per UU PDP)
+        # dim_customers (PII di-hash mengacu UU PDP)
         dim_customers = hash_columns(customers.copy(), ["customer_unique_id"])
         out_paths["dim_customers"] = _write(dim_customers, "dim_customers")
 
-        # dim_products, enriched with English category name
+        # dim_products, dilengkapi nama kategori dalam bahasa Inggris
         dim_products = products.merge(category_translation, on="product_category_name", how="left")
         out_paths["dim_products"] = _write(dim_products, "dim_products")
 
@@ -218,7 +219,7 @@ def olist_etl_pipeline():
         # dim_orders
         out_paths["dim_orders"] = _write(orders, "dim_orders")
 
-        # dim_date: generated from all unique order dates in the full dataset
+        # dim_date: dibangun dari seluruh tanggal pesanan unik pada dataset penuh
         orders["order_purchase_timestamp"] = pd.to_datetime(orders["order_purchase_timestamp"])
         dates = orders["order_purchase_timestamp"].dt.date.drop_duplicates().reset_index(drop=True)
         dim_date = pd.DataFrame({"date": pd.to_datetime(dates)})
@@ -231,16 +232,17 @@ def olist_etl_pipeline():
         dim_date["is_weekend"] = dim_date["day_of_week"].isin([5, 6])
         out_paths["dim_date"] = _write(dim_date, "dim_date")
 
-        # --- Fact table (incremental-aware) ---
-        # Grain = order item; natural key (order_id, order_item_id).
-        # The same product may appear multiple times in one order (bulk/split
-        # shipments), so product_id alone cannot form part of the unique key
-        # (grain violation detected by QDC uniqueness dimension - see Bab IV).
+        # --- Tabel fakta (sadar-mode incremental) ---
+        # Grain = order item; kunci alami (order_id, order_item_id).
+        # Produk yang sama dapat muncul beberapa kali dalam satu order
+        # (pengiriman massal/terpisah), sehingga product_id saja tidak dapat
+        # menjadi bagian dari kunci unik (pelanggaran grain terdeteksi oleh
+        # dimensi uniqueness pada QDC - lihat Bab IV).
 
-        orders_ts = orders["order_purchase_timestamp"]  # already datetime
+        orders_ts = orders["order_purchase_timestamp"]  # sudah bertipe datetime
 
         if is_incremental:
-            # Filter: keep only orders strictly newer than the watermark date
+            # Filter: hanya order yang lebih baru dari tanggal watermark
             new_order_mask = orders_ts.dt.date > watermark
             new_order_ids = set(orders.loc[new_order_mask, "order_id"])
             orders_for_fact = orders[new_order_mask].copy()
@@ -263,7 +265,7 @@ def olist_etl_pipeline():
         fact_sales["order_purchase_timestamp"] = pd.to_datetime(
             fact_sales["order_purchase_timestamp"]
         )
-        # order_date (DATE) - source for watermark and time-based analytics
+        # order_date (DATE) - sumber untuk watermark dan analitik berbasis waktu
         fact_sales["order_date"] = fact_sales["order_purchase_timestamp"].dt.date
         fact_sales["date_key"] = (
             fact_sales["order_purchase_timestamp"].dt.strftime("%Y%m%d")
@@ -284,18 +286,18 @@ def olist_etl_pipeline():
         ]
         out_paths["fact_sales"] = _write(fact_sales, "fact_sales")
 
-        # Pass incremental flag to load task
+        # Teruskan flag incremental ke task load
         out_paths["_is_incremental"] = "1" if is_incremental else ""
         return out_paths
 
     @task
     def qdc_validation(paths: dict[str, str]) -> dict[str, str]:
         """
-        Run 4-dimension QDC per table. Fail-fast if any table exceeds the
-        5% failure threshold (Bab 3.5.1). Failed rows are written to
-        error_log CSVs for inspection.
+        Menjalankan QDC 4 dimensi untuk setiap tabel. Fail-fast bila suatu
+        tabel melampaui ambang kegagalan 5% (Bab 3.5.1). Baris yang gagal
+        ditulis ke CSV error_log untuk diperiksa.
         """
-        # Extract and pass through metadata
+        # Ambil dan teruskan metadata
         meta = {k: v for k, v in paths.items() if k.startswith("_")}
         data_paths = {k: v for k, v in paths.items() if not k.startswith("_")}
 
@@ -341,7 +343,7 @@ def olist_etl_pipeline():
             if not failed_df.empty:
                 error_path = os.path.join(PROCESSED_DATA_DIR, f"{table_name}_error_log.csv")
                 failed_df.to_csv(error_path, index=False)
-                logger.warning(f"{table_name}: {len(failed_df):,} rows routed to error_log")
+                logger.warning(f"{table_name}: {len(failed_df):,} baris diarahkan ke error_log")
 
             if result.triggers_fail_fast:
                 overall_failures.append(result.summary())
@@ -356,18 +358,18 @@ def olist_etl_pipeline():
                 + "; ".join(overall_failures)
             )
 
-        return {**clean_paths, **meta}  # forward metadata to load
+        return {**clean_paths, **meta}  # teruskan metadata ke task load
 
     @task
     def load(paths: dict[str, str]) -> None:
-        """Load clean star-schema tables into BigQuery (asia-southeast2).
+        """Memuat tabel star schema yang sudah bersih ke BigQuery (asia-southeast2).
 
-        Dimension tables: always WRITE_TRUNCATE (full refresh; they are small
-        and must reflect any upstream SCD changes).
+        Tabel dimensi: selalu WRITE_TRUNCATE (refresh penuh; ukurannya kecil
+        dan harus mencerminkan setiap perubahan SCD dari hulu).
 
         fact_sales:
-          - First run  (is_incremental=False): WRITE_TRUNCATE (full reload)
-          - Subsequent (is_incremental=True):  WRITE_APPEND (append new rows)
+          - Run pertama (is_incremental=False): WRITE_TRUNCATE (muat ulang penuh)
+          - Run berikutnya (is_incremental=True): WRITE_APPEND (append baris baru)
         """
         from google.cloud import bigquery
 
@@ -385,8 +387,8 @@ def olist_etl_pipeline():
             df = pd.read_parquet(path)
 
             if table_name == "fact_sales":
-                # Convert to Python date objects (not datetime64[ns]) to avoid
-                # the BigQuery SDK coercion of the DATE column.
+                # Konversi ke objek date Python (bukan datetime64[ns]) untuk menghindari
+                # koersi kolom DATE oleh BigQuery SDK.
                 df["order_date"] = pd.to_datetime(df["order_date"]).dt.date
 
             table_id = f"{dataset_ref}.{table_name}"
@@ -400,17 +402,17 @@ def olist_etl_pipeline():
             mode = "APPEND" if is_incremental and table_name == "fact_sales" else "TRUNCATE"
             logger.info(f"Loaded {len(df):,} rows into {table_id} ({mode})")
 
-        # Summary row-count of fact_sales for observability / Bab IV evaluation
+        # Ringkasan jumlah baris fact_sales untuk observability / evaluasi Bab IV
         fact_table_id = f"{dataset_ref}.fact_sales"
         total = next(
             iter(client.query(f"SELECT COUNT(*) AS n FROM `{fact_table_id}`").result())
         ).n
         logger.info(f"fact_sales now has {total:,} rows ({'APPEND' if is_incremental else 'REPLACE'})")
 
-    # Task wiring (Bab 3.5.2): extract -> validate_schema -> transform
-    # -> qdc_validation -> load. Each step passes its output dict to the next
-    # via TaskFlow XCom arguments. Airflow 3 @task decorators register a task
-    # only when the decorated function is called here.
+    # Perakitan task (Bab 3.5.2): extract -> validate_schema -> transform
+    # -> qdc_validation -> load. Setiap langkah meneruskan dict keluarannya ke
+    # langkah berikutnya melalui argumen XCom TaskFlow. Decorator @task Airflow 3
+    # hanya mendaftarkan task ketika fungsi yang didekorasi dipanggil di sini.
     extracted = extract()
     validated = validate_schema(extracted)
     transformed = transform(validated)
@@ -418,7 +420,7 @@ def olist_etl_pipeline():
     load(qdc)
 
 
-# IMPORTANT: Airflow 3.x scheduler discovers DAGs assigned to module-level
-# global variables. Assigning the constructed DAG to a global named `dag`
-# is the idiomatic registration pattern.
+# PENTING: scheduler Airflow 3.x menemukan DAG yang ditugaskan ke variabel
+# global tingkat modul. Menugaskan DAG yang telah dibangun ke global bernama
+# `dag` merupakan pola pendaftaran idiomatik.
 dag = olist_etl_pipeline()

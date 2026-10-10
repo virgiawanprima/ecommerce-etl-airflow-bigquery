@@ -1,4 +1,4 @@
-"""Small IO helpers shared across DAG tasks."""
+"""Bantuan IO kecil yang dipakai bersama oleh seluruh task DAG."""
 from __future__ import annotations
 
 import os

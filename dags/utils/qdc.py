@@ -1,14 +1,14 @@
 """
-Quality Data Control (QDC) module.
+Modul Quality Data Control (QDC).
 
-Implements four validation dimensions per skripsi Bab 2.6:
-- completeness : required columns must not be null
-- uniqueness   : no unintended duplicate keys
-- consistency  : column dtypes match expected schema
-- validity     : values respect business logic (e.g. price >= 0)
+Menerapkan empat dimensi validasi sebagaimana dirancang pada skripsi Bab 2.6:
+- completeness : kolom wajib tidak boleh bernilai kosong (null)
+- uniqueness   : tidak ada duplikasi pada kunci yang tidak disengaja
+- consistency  : tipe data kolom sesuai dengan skema yang diharapkan
+- validity     : nilai sesuai dengan logika bisnis (mis. price >= 0)
 
-Each check returns a boolean mask (True = passes) so failing rows can be
-routed to error_log instead of silently dropped.
+Setiap pemeriksaan mengembalikan boolean mask (True = lulus) sehingga baris
+yang gagal dapat diarahkan ke error_log, bukan sekadar dibuang diam-diam.
 """
 from __future__ import annotations
 
@@ -57,24 +57,30 @@ class QDCResult:
 
 
 def check_completeness(df: pd.DataFrame, required_cols: list[str]) -> pd.Series:
-    """True where ALL required columns are non-null for that row."""
+    """True pada baris yang seluruh kolom wajibnya bernilai non-null."""
     return df[required_cols].notna().all(axis=1)
 
 
 def check_uniqueness(df: pd.DataFrame, key_cols: list[str]) -> pd.Series:
-    """True where the key combination is not a duplicate (keeps first occurrence)."""
+    """True pada baris yang kombinasi kuncinya tidak duplikat (pertama dipertahankan)."""
     return ~df.duplicated(subset=key_cols, keep="first")
 
 
 def check_consistency(df: pd.DataFrame, expected_dtypes: dict[str, str]) -> pd.Series:
     """
-    True where value can be safely coerced to the expected dtype.
-    Uses per-column coercion checks rather than a single dtype comparison,
-    since raw CSV columns commonly load as 'object'.
+    True pada baris yang nilainya dapat dikonversi dengan aman ke tipe data
+    yang diharapkan. Memakai pemeriksaan koersi per kolom, bukan perbandingan
+    tipe data sekaligus, karena kolom CSV mentah umumnya dimuat sebagai
+    dtype 'object'.
     """
     mask = pd.Series(True, index=df.index)
     for col, dtype in expected_dtypes.items():
         if col not in df.columns:
+            logger.warning(
+                "check_consistency: kolom '%s' tidak ada -> aturan dilewati. "
+                "Tambahkan ke required_cols agar ketahuan sebagai pelanggaran.",
+                col,
+            )
             continue
         if dtype in ("float64", "int64"):
             coerced = pd.to_numeric(df[col], errors="coerce")
@@ -87,15 +93,41 @@ def check_consistency(df: pd.DataFrame, expected_dtypes: dict[str, str]) -> pd.S
 
 def check_validity(df: pd.DataFrame, rules: dict[str, callable]) -> pd.Series:
     """
-    True where each business-rule callable returns True for that row's value.
-    rules: {column_name: lambda series -> boolean_series}
-    Example: {"price": lambda s: s >= 0}
+    True pada baris di mana callable aturan bisnis mengembalikan True untuk
+    nilai baris tersebut.
+    rules: {nama_kolom: lambda series -> boolean_series}
+    Contoh: {"price": lambda s: s >= 0}
+
+    Kolom non-numerik (dtype 'object') dikoersi ke numerik sebelum aturan
+    diterapkan. Tanpa langkah ini, nilai seperti "29,90" atau "N/A" membuat
+    kolom ber-dtype object dan perbandingan `s >= 0` melempar TypeError,
+    sehingga task gagal tanpa menulis error_log. Baris yang tidak dapat
+    dikonversi menjadi NaN lalu dianggap gagal (fillna(False)), sehingga
+    aturan tetap menangkapnya - hanya tanpa menjatuhkan pipeline.
     """
     mask = pd.Series(True, index=df.index)
     for col, rule_fn in rules.items():
         if col not in df.columns:
+            logger.warning(
+                "check_validity: kolom '%s' tidak ada -> aturan dilewati. "
+                "Periksa konfigurasi QDC untuk tabel ini.",
+                col,
+            )
             continue
-        mask &= rule_fn(df[col]).fillna(False)
+        series = df[col]
+        try:
+            outcome = rule_fn(series)
+        except TypeError:
+            coerced = pd.to_numeric(series, errors="coerce")
+            unconvertible = int(series.notna().sum() - coerced.notna().sum())
+            logger.info(
+                "check_validity: kolom '%s' dikoersi ke numerik (%d nilai "
+                "tidak dapat dikonversi) sebelum aturan diterapkan.",
+                col,
+                unconvertible,
+            )
+            outcome = rule_fn(coerced)
+        mask &= outcome.fillna(False)
     return mask
 
 
@@ -108,12 +140,14 @@ def run_qdc(
     validity_rules: dict[str, callable] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, QDCResult]:
     """
-    Runs all four QDC dimensions and splits the dataframe into (passed, failed).
+    Menjalankan keempat dimensi QDC lalu membagi dataframe menjadi
+    (lulus, gagal).
 
-    Returns:
-        passed_df: rows that satisfy every dimension
-        failed_df: rows that failed at least one dimension, with reason flag columns
-        result: QDCResult summary object
+    Mengembalikan:
+        passed_df: baris yang memenuhi seluruh dimensi
+        failed_df: baris yang gagal pada minimal satu dimensi, dilengkapi
+                   kolom penanda alasan kegagalan
+        result: objek ringkasan QDCResult
     """
     expected_dtypes = expected_dtypes or {}
     validity_rules = validity_rules or {}

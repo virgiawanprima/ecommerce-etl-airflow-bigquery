@@ -1,17 +1,17 @@
-# Secrets — never send to Docker daemon build context
+# Rahasia — jangan pernah dikirim ke build context daemon Docker
 config/keys/
 .env
 
-# Runtime data & logs (mounted as volumes, not baked into image)
+# Data & log saat runtime (di-mount sebagai volume, tidak dibaked ke image)
 data/
 logs/
 
-# Version control & IDE
+# Kontrol versi & IDE
 .git/
 .gitignore
 .vscode/
 
-# Python artifacts
+# Artefak Python
 __pycache__/
 *.pyc
 .venv/
