@@ -7,8 +7,8 @@ standalone_admin_password.txt
 data/raw/*.csv
 data/processed/*
 data/_noise_backup/
-# Catatan: docs/ sengaja TIDAK diabaikan agar bukti pengujian Bab IV
-# ikut tersimpan dalam version control.
+# Dokumen skripsi bersifat privat - jangan pernah dipublikasikan ke repo publik
+docs/
 __pycache__/
 *.pyc
 .venv/
