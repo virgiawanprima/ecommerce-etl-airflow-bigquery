@@ -10,7 +10,7 @@
 │  (data/raw/)     │    │  (5 tasks)   │    │  (olist_dw)     │    │  Studio        │
 └──────────────────┘    └──────────────┘    └─────────────────┘    └────────────────┘
         99.441 orders        112.650 rows        6 tabel              Dashboard
-        112.650 items        37-77 detik         Star Schema          (opsional)
+        112.650 items        25-77 detik         Star Schema          (opsional)
 ```
 
 - **Orkestrasi:** Apache Airflow 3.0.6 (CeleryExecutor, Docker Compose)
@@ -31,11 +31,11 @@ Membangun pipeline ETL hybrid cloud-native yang menangani data e-commerce volume
 
 ```mermaid
 erDiagram
-    fact_sales ||--o{ dim_customers : "customer_id"
-    fact_sales ||--o{ dim_products : "product_id"
-    fact_sales ||--o{ dim_sellers : "seller_id"
-    fact_sales ||--o{ dim_orders : "order_id"
-    fact_sales ||--o{ dim_date : "date_key"
+    dim_customers ||--o{ fact_sales : "customer_id"
+    dim_products ||--o{ fact_sales : "product_id"
+    dim_sellers ||--o{ fact_sales : "seller_id"
+    dim_orders ||--o{ fact_sales : "order_id"
+    dim_date ||--o{ fact_sales : "date_key"
 
     fact_sales {
         STRING order_id
