@@ -188,7 +188,7 @@ DAG `olist_etl_pipeline` menjalankan 5 task berurutan:
 
 ## ✅ Verifikasi & Test Suite
 
-Jalankan seluruh verifikasi otomatis (unit self-check + DAG registration + BigQuery state):
+Jalankan seluruh verifikasi otomatis (unit self-check + DAG registration + BigQuery state + baseline):
 
 ```bash
 make verify
@@ -199,9 +199,10 @@ Setara dengan test suite untuk proyek ini (tanpa framework eksternal):
 | Target | Cakupan |
 |--------|---------|
 | `make dag-check` | Syntax + registrasi 5 task DAG + `pip check` (integritas dependency) |
-| `make self-check` | Unit test QDC 4 dimensi (fail-fast, threshold) + hashing PII (12 assertions) |
+| `make self-check` | Unit test QDC 4 dimensi (fail-fast, threshold) + hashing PII + regresi numerik (19 assertions) |
 | `make bq-verify` | Row count 6 tabel star schema di BigQuery |
-| `make run` | Trigger satu run end-to-end (idempotent) |
+| `make run` | Trigger satu run end-to-end DAG utama (idempotent) |
+| `make run-baseline` | Trigger satu run DAG baseline tanpa gerbang QDC (pembanding durasi) |
 
 File self-check: `dags/utils/self_check.py` (assert-based, no framework — sesuai best practice test ringan untuk logic non-trivial).
 
@@ -210,24 +211,27 @@ File self-check: `dags/utils/self_check.py` (assert-based, no framework — sesu
 ```
 olist-etl-pipeline/
 ├── dags/
-│   ├── olist_etl_pipeline.py    # DAG utama (5 tasks: extract, validate_schema, transform, qdc_validation, load)
+│   ├── olist_etl_pipeline.py         # DAG utama (5 tasks: extract, validate_schema, transform, qdc_validation, load)
+│   ├── olist_etl_baseline_noqdc.py   # DAG baseline pembanding tanpa gerbang QDC
 │   └── utils/
-│       ├── qdc.py                # 4-dimension QDC
-│       ├── pii.py                # SHA-256 hashing
-│       ├── io_helpers.py         # Parquet utilities
-│       └── self_check.py         # Unit self-check (assert-based)
+│       ├── qdc.py                    # 4-dimension QDC (completeness, uniqueness, consistency, validity)
+│       ├── pii.py                    # SHA-256 hashing (UU PDP)
+│       ├── io_helpers.py             # Parquet utilities
+│       └── self_check.py             # Unit self-check (19 assertions)
 ├── data/
-│   ├── raw/                      # 9 CSV Olist
-│   ├── processed/                # Parquet intermediate
-│   └── sim/                      # Data sintetis (opsional, untuk velocity test)
-├── config/keys/                  # GCP service account key (gitignored)
-├── logs/                         # Airflow logs (gitignored)
-├── docker-compose.yml            # 7 services: webserver, scheduler, worker, dag-processor, triggerer, postgres, redis
-├── Dockerfile                    # apache/airflow:3.0.6 + dependencies
-├── requirements.txt              # Python dependencies (pandas, bigquery, pyarrow, dll.)
-├── Makefile                      # make verify / make check / make run / make bq-verify
-├── .dockerignore                 # Mengecualikan secrets & data dari build context
-├── .env                          # Environment variables (gitignored)
+│   ├── raw/                          # 9 CSV Olist (99.441 orders, 112.650 items)
+│   ├── processed/                    # Parquet intermediate
+│   └── sim/                          # Data sintetis (simulasi velocity transaksi harian)
+├── scripts/
+│   └── noise_injection.py            # Skrip injeksi noise 4 dimensi untuk uji fail-fast & QDC
+├── config/keys/                      # GCP service account key (gitignored)
+├── logs/                             # Airflow logs (gitignored)
+├── docker-compose.yml                # 7 services: webserver, scheduler, worker, dag-processor, triggerer, postgres, redis
+├── Dockerfile                        # apache/airflow:3.0.6 + dependencies
+├── requirements.txt                  # Python dependencies (pandas, bigquery, pyarrow, dll.)
+├── Makefile                          # make verify / make check / make run / make run-baseline / make bq-verify
+├── .dockerignore                     # Mengecualikan secrets & data dari build context
+├── .env                              # Environment variables (gitignored)
 └── .gitignore
 ```
 
