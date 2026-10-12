@@ -274,30 +274,30 @@ Perintah di atas mengeksekusi rangkaian uji komprehensif berikut:
 
 ```text
 ecommerce-etl-airflow-bigquery/
-+-- .dockerignore                 # Pengecualian secrets dan data dari Docker build
-+-- .env.example                  # Template konfigurasi environment variable
-+-- .gitignore                    # Proteksi kerahasiaan data, secrets, dan dokumentasi privat
-+-- Dockerfile                    # Image kustom Apache Airflow 3.0.6 + BigQuery providers
-+-- Makefile                      # Otomatisasi workflow uji mandiri (make verify)
-+-- README.md                     # Dokumentasi komprehensif proyek
-+-- docker-compose.yml            # Konfigurasi 7 layanan Airflow (CeleryExecutor)
-+-- requirements.txt              # Pustaka Python pihak ketiga (pyarrow, pandas, gcp)
-+-- config/
-|   +-- keys/                     # Tempat kredensial GCP Service Account (gitignored)
-+-- dags/
-|   +-- olist_etl_pipeline.py     # DAG utama (Extract -> Validate -> Transform -> QDC -> Load)
-|   +-- olist_etl_baseline_noqdc.py # DAG baseline perbandingan tanpa Quality Gate
-|   +-- utils/
-|       +-- io_helpers.py         # Utilitas I/O dan pembacaan Parquet
-|       +-- pii.py                # Implementasi enkripsi SHA-256 untuk proteksi data pribadi
-|       +-- qdc.py                # Engine Quality Control 4-Dimensi
-|       +-- self_check.py         # Skrip unit self-check assert-based (19 assertions)
-+-- data/
-|   +-- raw/                      # 9 file dataset CSV publik Olist (gitignored)
-|   +-- processed/                # File Parquet intermediate staging (gitignored)
-+-- plugins/                      # Tempat ekstensi kustom Airflow (gitignored)
-+-- scripts/
-    +-- noise_injection.py        # Skrip injeksi anomali untuk validasi fail-fast QDC
+├── .dockerignore                 # Pengecualian secrets dan data dari Docker build context
+├── .env.example                  # Template aman untuk konfigurasi environment variables
+├── .gitignore                    # Isolasi secrets, dataset mentah, dan dokumentasi privat
+├── Dockerfile                    # Image Apache Airflow 3.0.6 kustom (Google BigQuery provider)
+├── Makefile                      # Otomatisasi pengujian dan verifikasi mandiri (make verify)
+├── README.md                     # Dokumentasi teknis komprehensif proyek
+├── docker-compose.yml            # Orkestrasi 7 layanan Airflow (CeleryExecutor, Postgres, Redis)
+├── requirements.txt              # Pustaka Python dependencies (pandas, pyarrow, bigquery)
+├── config/
+│   └── keys/                     # Tempat kredensial GCP Service Account (terisolasi aman)
+├── dags/
+│   ├── olist_etl_pipeline.py     # DAG utama 5-task (Extract -> Validate -> Transform -> QDC -> Load)
+│   ├── olist_etl_baseline_noqdc.py # DAG baseline perbandingan performa tanpa Quality Gate
+│   └── utils/
+│       ├── io_helpers.py         # Utilitas I/O dan pembacaan berkas Parquet
+│       ├── pii.py                # Enkripsi hashing SHA-256 untuk proteksi data pribadi (UU PDP)
+│       ├── qdc.py                # Engine Quality Dimensions Check 4-Dimensi
+│       └── self_check.py         # Skrip unit self-check assert-based (19 assertions)
+├── data/
+│   ├── raw/                      # 9 berkas CSV publik transaksi e-commerce Olist (gitignored)
+│   └── processed/                # Staging intermediate berkas Parquet dan error log (gitignored)
+├── plugins/                      # Direktori ekstensi kustom Apache Airflow (gitignored)
+└── scripts/
+    └── noise_injection.py        # Utilitas injeksi anomali untuk validasi fail-fast gerbang QDC
 ```
 
 ---

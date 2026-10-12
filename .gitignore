@@ -1,18 +1,45 @@
+# ==============================================================================
+# Environment & Secret Credentials
+# ==============================================================================
 .env
 config/keys/*.json
+!config/keys/.gitkeep
+
+# ==============================================================================
+# Apache Airflow Runtime & Database
+# ==============================================================================
 logs/
 airflow.cfg
 airflow.db
 standalone_admin_password.txt
+
+# ==============================================================================
+# Data Directories (Raw & Intermediate Staging)
+# ==============================================================================
 data/raw/*.csv
+!data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
 data/_noise_backup/
-# Dokumen skripsi bersifat privat - jangan pernah dipublikasikan ke repo publik
+
+# ==============================================================================
+# Private Documentation & Academic Materials
+# ==============================================================================
 docs/
+
+# ==============================================================================
+# Python Artifacts & Virtual Environments
+# ==============================================================================
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 .venv/
 venv/
+
+# ==============================================================================
+# IDE & Operating System Artifacts
+# ==============================================================================
 .DS_Store
+Thumbs.db
 .vscode/
+.idea/
