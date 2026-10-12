@@ -6,6 +6,7 @@ airflow.db
 standalone_admin_password.txt
 data/raw/*.csv
 data/processed/*
+!data/processed/.gitkeep
 data/_noise_backup/
 # Dokumen skripsi bersifat privat - jangan pernah dipublikasikan ke repo publik
 docs/
@@ -15,4 +16,3 @@ __pycache__/
 venv/
 .DS_Store
 .vscode/
-index.html

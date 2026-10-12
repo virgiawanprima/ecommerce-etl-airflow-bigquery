@@ -1,4 +1,4 @@
-# Rahasia — jangan pernah dikirim ke build context daemon Docker
+# Rahasia - jangan pernah dikirim ke build context daemon Docker
 config/keys/
 .env
 
