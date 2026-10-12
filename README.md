@@ -9,6 +9,7 @@
 [![Docker](https://img.shields.io/badge/Docker%20Compose-7%20Services-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![Celery](https://img.shields.io/badge/Executor-Celery-37B34A?style=for-the-badge&logo=celery&logoColor=white)](https://docs.celeryq.dev/)
 [![Looker Studio](https://img.shields.io/badge/BI-Looker%20Studio-EA4335?style=for-the-badge&logo=google&logoColor=white)](https://lookerstudio.google.com/)
+[![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?style=for-the-badge&logo=github-actions&logoColor=white)](https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery/actions)
 
 <p align="center">
   <b>Pipeline ETL otomatis berstandar enterprise untuk memproses 112.650 baris data transaksi e-commerce Brazil (Olist) ke Google BigQuery dalam arsitektur Star Schema, dilengkapi orkestrasi Airflow 3, incremental load via watermark, perlindungan privasi data PII SHA-256 (UU PDP), dan gerbang Quality Control 4-Dimensi.</b>
@@ -274,6 +275,9 @@ Perintah di atas mengeksekusi rangkaian uji komprehensif berikut:
 
 ```text
 olist-etl-pipeline/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                # Pipeline CI otomatis (Linting, DAG integrity, Unit tests)
 ├── .dockerignore                 # Pengecualian secrets dan data dari Docker build context
 ├── .env.example                  # Template aman untuk konfigurasi environment variables
 ├── .gitignore                    # [PENTING] Abaikan file log, cache, dan data lokal
