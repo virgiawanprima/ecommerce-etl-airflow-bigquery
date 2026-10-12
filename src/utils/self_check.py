@@ -3,7 +3,7 @@ Self-check (assert-based) for non-trivial pipeline logic.
 
 Run inside the Airflow container (has pandas + project utils):
 
-    docker compose exec airflow-scheduler python /opt/airflow/dags/utils/self_check.py
+    docker compose exec airflow-scheduler python /opt/airflow/src/utils/self_check.py
 
 Verifies QDC (4 dimensions + fail-fast threshold) and PII hashing
 without needing BigQuery or Airflow orchestration.

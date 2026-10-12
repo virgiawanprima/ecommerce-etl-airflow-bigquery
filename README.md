@@ -273,31 +273,40 @@ Perintah di atas mengeksekusi rangkaian uji komprehensif berikut:
 ## 📁 Struktur Repositori
 
 ```text
-ecommerce-etl-airflow-bigquery/
+olist-etl-pipeline/
 ├── .dockerignore                 # Pengecualian secrets dan data dari Docker build context
 ├── .env.example                  # Template aman untuk konfigurasi environment variables
-├── .gitignore                    # Isolasi secrets, dataset mentah, dan dokumentasi privat
+├── .gitignore                    # [PENTING] Abaikan file log, cache, dan data lokal
 ├── Dockerfile                    # Image Apache Airflow 3.0.6 kustom (Google BigQuery provider)
 ├── Makefile                      # Otomatisasi pengujian dan verifikasi mandiri (make verify)
 ├── README.md                     # Dokumentasi teknis komprehensif proyek
 ├── docker-compose.yml            # Orkestrasi 7 layanan Airflow (CeleryExecutor, Postgres, Redis)
 ├── requirements.txt              # Pustaka Python dependencies (pandas, pyarrow, bigquery)
 ├── config/
-│   └── keys/                     # Tempat kredensial GCP Service Account (terisolasi aman)
+│   └── keys/
+│       └── gcp-sa-key.json       # Kredensial GCP Service Account (gitignored agar tidak bocor)
 ├── dags/
-│   ├── olist_etl_pipeline.py     # DAG utama 5-task (Extract -> Validate -> Transform -> QDC -> Load)
 │   ├── olist_etl_baseline_noqdc.py # DAG baseline perbandingan performa tanpa Quality Gate
-│   └── utils/
-│       ├── io_helpers.py         # Utilitas I/O dan pembacaan berkas Parquet
-│       ├── pii.py                # Enkripsi hashing SHA-256 untuk proteksi data pribadi (UU PDP)
-│       ├── qdc.py                # Engine Quality Dimensions Check 4-Dimensi
-│       └── self_check.py         # Skrip unit self-check assert-based (19 assertions)
-├── data/
-│   ├── raw/                      # 9 berkas CSV publik transaksi e-commerce Olist (gitignored)
-│   └── processed/                # Staging intermediate berkas Parquet dan error log (gitignored)
-├── plugins/                      # Direktori ekstensi kustom Apache Airflow (gitignored)
-└── scripts/
-    └── noise_injection.py        # Utilitas injeksi anomali untuk validasi fail-fast gerbang QDC
+│   └── olist_etl_pipeline.py     # DAG utama 5-task (Extract -> Validate -> Transform -> QDC -> Load)
+├── src/                          # Seluruh logika Python kustom proyek
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   ├── io_helpers.py         # Utilitas I/O dan pembacaan berkas Parquet
+│   │   ├── pii.py                # Enkripsi hashing SHA-256 proteksi data pribadi (UU PDP)
+│   │   ├── qdc.py                # Engine Quality Dimensions Check 4-Dimensi
+│   │   └── self_check.py         # Skrip unit self-check assert-based (19 assertions)
+│   └── scripts/
+│       ├── __init__.py
+│       └── noise_injection.py    # Utilitas injeksi anomali untuk validasi fail-fast gerbang QDC
+├── data/                         # [LOKAL/DEV ONLY] Direktori data lokal (gitignored)
+│   ├── _noise_backup/            # Cadangan data pengujian noise
+│   ├── processed/                # Staging intermediate berkas Parquet dan error log
+│   └── raw/                      # 9 berkas CSV publik transaksi e-commerce Olist
+├── docs/                         # Dokumen materi skripsi dan performa (gitignored)
+│   ├── bab4_hasil_pengujian.md
+│   └── metrik_performa.md
+├── logs/                         # [LOKAL/DEV ONLY] Log eksekusi task Airflow (gitignored)
+└── plugins/                      # Direktori ekstensi kustom Apache Airflow
 ```
 
 ---

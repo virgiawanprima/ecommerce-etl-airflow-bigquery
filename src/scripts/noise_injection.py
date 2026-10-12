@@ -12,8 +12,8 @@ Dimensi yang dit Campaign:
   validity     -> price diisi nilai negatif
 
 Contoh:
-    python3 scripts/noise_injection.py --rate 2
-    python3 scripts/noise_injection.py --restore
+    python3 src/scripts/noise_injection.py --rate 2
+    python3 src/scripts/noise_injection.py --restore
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ import shutil
 import sys
 from datetime import datetime
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 RAW = os.path.join(REPO, "data", "raw")
 TARGET = "olist_order_items_dataset.csv"
 BACKUP_DIR = os.path.join(REPO, "data", "_noise_backup")

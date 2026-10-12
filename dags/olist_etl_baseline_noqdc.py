@@ -18,10 +18,17 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pandas as pd
 from airflow.sdk import dag, task
+
+# Pastikan direktori src/ terdaftar dalam sys.path (kompatibel Docker dan lokal)
+_SRC_DIR = str(Path(__file__).resolve().parent.parent / "src")
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
 
 from utils.io_helpers import write_parquet as _write
 from utils.pii import hash_columns

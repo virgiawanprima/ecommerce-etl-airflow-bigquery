@@ -21,17 +21,15 @@ x-airflow-common: &airflow-common
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET}
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW__API__SECRET_KEY}
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
-    # self_check.py adalah skrip uji mandiri, bukan DAG. Skrip ini tetap
-    # dijalankan manual lewat `make self-check` (dieksekusi langsung lewat
-    # path), sehingga tidak perlu ikut diparse oleh scheduler.
-    AIRFLOW__CORE__DAG_IGNORE_FILE_SYNTAX: 'glob'
-    AIRFLOW__CORE__DAG_IGNORE_FILE_PATTERNS: 'self_check.py'
+    # Menambahkan direktori src ke PYTHONPATH agar modul kustom di src/utils dapat diimpor langsung
+    PYTHONPATH: '/opt/airflow:/opt/airflow/src'
     GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/config/keys/gcp-sa-key.json
     GCP_PROJECT_ID: ${GCP_PROJECT_ID}
     BIGQUERY_DATASET: ${BIGQUERY_DATASET}
     BIGQUERY_LOCATION: ${BIGQUERY_LOCATION}
   volumes:
     - ./dags:/opt/airflow/dags
+    - ./src:/opt/airflow/src
     - ./logs:/opt/airflow/logs
     - ./plugins:/opt/airflow/plugins
     - ./config:/opt/airflow/config
