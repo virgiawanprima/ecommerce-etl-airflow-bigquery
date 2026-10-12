@@ -1,12 +1,12 @@
 """
-Self-check (assert-based) for non-trivial pipeline logic.
+Uji mandiri (berbasis assert) untuk logika non-trivial pipeline.
 
-Run inside the Airflow container (has pandas + project utils):
+Jalankan di dalam container Airflow (memiliki dependensi pandas dan utilitas proyek):
 
     docker compose exec airflow-scheduler python /opt/airflow/src/utils/self_check.py
 
-Verifies QDC (4 dimensions + fail-fast threshold) and PII hashing
-without needing BigQuery or Airflow orchestration.
+Memverifikasi mekanisme QDC (4 dimensi dan ambang batas fail-fast) serta hashing PII (UU PDP)
+tanpa memerlukan BigQuery atau orkestrasi penuh Airflow.
 """
 from __future__ import annotations
 

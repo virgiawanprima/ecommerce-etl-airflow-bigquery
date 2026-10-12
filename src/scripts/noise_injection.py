@@ -5,7 +5,7 @@ Alat uji injeksi noise untuk membuktikan mekanisme QDC + fail-fast.
 Menginjeksi noise terkontrol ke data/raw/olist_order_items_dataset.csv pada
 empat dimensi QDC secara disjoint, lalu mengembalikan data asli bila diperlukan.
 
-Dimensi yang dit Campaign:
+Dimensi yang diuji:
   completeness -> product_id dikosongkan          (kolom wajib, bukan key)
   uniqueness   -> duplikasi (order_id, order_item_id)
   consistency  -> price diisi teks non-numerik

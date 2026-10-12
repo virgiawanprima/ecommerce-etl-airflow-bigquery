@@ -1,12 +1,12 @@
 # ==============================================================================
-# Environment & Secret Credentials
+# Variabel Lingkungan & Kredensial Rahasia
 # ==============================================================================
 .env
 config/keys/*.json
 !config/keys/.gitkeep
 
 # ==============================================================================
-# Apache Airflow Runtime & Database
+# Runtime & Basis Data Apache Airflow
 # ==============================================================================
 logs/
 airflow.cfg
@@ -14,7 +14,7 @@ airflow.db
 standalone_admin_password.txt
 
 # ==============================================================================
-# Data Directories (Raw & Intermediate Staging)
+# Direktori Data (Mentah & Staging Menengah)
 # ==============================================================================
 data/raw/*.csv
 !data/raw/.gitkeep
@@ -23,12 +23,12 @@ data/processed/*
 data/_noise_backup/
 
 # ==============================================================================
-# Private Documentation & Academic Materials
+# Dokumentasi Privat & Materi Skripsi
 # ==============================================================================
 docs/
 
 # ==============================================================================
-# Python Artifacts & Virtual Environments
+# Artefak Python & Virtual Environment
 # ==============================================================================
 __pycache__/
 *.py[cod]
@@ -37,7 +37,7 @@ __pycache__/
 venv/
 
 # ==============================================================================
-# IDE & Operating System Artifacts
+# Artefak IDE & Sistem Operasi
 # ==============================================================================
 .DS_Store
 Thumbs.db
