@@ -30,8 +30,12 @@ _SRC_DIR = str(Path(__file__).resolve().parent.parent / "src")
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
-from utils.io_helpers import write_parquet as _write
-from utils.pii import hash_columns
+try:
+    from src.utils.io_helpers import write_parquet as _write
+    from src.utils.pii import hash_columns
+except ImportError:
+    from utils.io_helpers import write_parquet as _write
+    from utils.pii import hash_columns
 
 logger = logging.getLogger(__name__)
 

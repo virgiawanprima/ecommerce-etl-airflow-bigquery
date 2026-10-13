@@ -40,9 +40,14 @@ _SRC_DIR = str(Path(__file__).resolve().parent.parent / "src")
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
-from utils.qdc import run_qdc
-from utils.pii import hash_columns
-from utils.io_helpers import write_parquet as _write
+try:
+    from src.utils.qdc import run_qdc
+    from src.utils.pii import hash_columns
+    from src.utils.io_helpers import write_parquet as _write
+except ImportError:
+    from utils.qdc import run_qdc
+    from utils.pii import hash_columns
+    from utils.io_helpers import write_parquet as _write
 
 logger = logging.getLogger(__name__)
 
