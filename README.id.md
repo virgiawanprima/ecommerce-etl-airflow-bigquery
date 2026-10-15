@@ -286,13 +286,13 @@ FROM `your-gcp-project.olist_dw.fact_sales`;
 ## 10. Struktur Repositori dan Riwayat Perubahan
 
 ```text
-olist-etl-pipeline/
+ecommerce-etl-airflow-bigquery/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                # Pipeline CI: linting Python, DAG check, unit test
 ├── .dockerignore                 # Pengecualian secrets dan dataset dari build context
 ├── .env.example                  # Template konfigurasi environment variables dan GCP
-├── .gitignore                    # Aturan pengabaian cache, kunci kredensial, dan data
+├── .gitignore                    # Aturan isolasi rahasia, dataset lokal, dan dokumen privat
 ├── Dockerfile                    # Image Apache Airflow 3.0.6 kustom dengan dependensi GCP
 ├── Makefile                      # Otomatisasi pengujian dan verifikasi mandiri (make verify)
 ├── README.md                     # Dokumentasi utama portofolio internasional (English)
@@ -301,29 +301,27 @@ olist-etl-pipeline/
 ├── requirements.txt              # Pustaka Python (pandas, pyarrow, google-cloud-bigquery)
 ├── config/
 │   └── keys/
-│       └── gcp-sa-key.json       # Kunci GCP Service Account (gitignored untuk keamanan)
+│       └── .gitkeep              # Titik pasang kredensial GCP (gcp-sa-key.json diabaikan git)
 ├── dags/
-│   ├── olist_etl_baseline_noqdc.py # DAG baseline tanpa gerbang kualitas
-│   └── olist_etl_pipeline.py     # DAG utama 5 task dengan integrasi QDC gate
-├── src/
-│   ├── utils/
-│   │   ├── __init__.py
-│   │   ├── io_helpers.py         # Utilitas I/O tervektorisasi dan pembacaan Parquet
-│   │   ├── pii.py                # Enkripsi hashing SHA-256 pelindungan data pribadi
-│   │   ├── qdc.py                # Mesin validasi Quality Dimensions Check 4 dimensi
-│   │   └── self_check.py         # 19 assertion pengujian unit logika batas sistem
-│   └── scripts/
-│       ├── __init__.py
-│       └── noise_injection.py    # Injektor anomali sintetis untuk pengujian fail-fast
-├── data/                         # Direktori penyimpanan data lokal (gitignored)
-│   ├── _noise_backup/            # Cadangan data pengujian noise
-│   ├── processed/                # Direktori pementasan file Parquet dan log error
-│   └── raw/                      # 9 file CSV mentah transaksi e-commerce Olist
-├── docs/                         # Catatan performa dan laporan pengujian empiris
-│   ├── bab4_hasil_pengujian.md   # Laporan pengujian empiris komprehensif
-│   ├── jawaban_evaluasi_claude.md# Catatan evaluasi dan rekonsiliasi Looker Studio
-│   └── metrik_performa.md        # Catatan waktu eksekusi dan tolok ukur SLA
-└── logs/                         # Berkas log kontainer eksekusi task (gitignored)
+│   ├── olist_etl_pipeline.py     # DAG utama 5 task dengan integrasi QDC gate
+│   └── olist_etl_baseline_noqdc.py # DAG baseline tanpa gerbang kualitas
+├── data/
+│   ├── processed/
+│   │   └── .gitkeep              # Area staging berkas Parquet (diabaikan git)
+│   └── raw/
+│       └── .gitkeep              # Direktori target 9 dataset CSV Olist (diabaikan git)
+├── plugins/
+│   └── .gitkeep                  # Direktori ekstensi kustom Airflow (diabaikan git)
+└── src/
+    ├── scripts/
+    │   ├── __init__.py
+    │   └── noise_injection.py    # Injektor anomali sintetis untuk pengujian fail-fast
+    └── utils/
+        ├── __init__.py
+        ├── io_helpers.py         # Utilitas I/O tervektorisasi dan pembacaan Parquet
+        ├── pii.py                # Enkripsi hashing SHA-256 pelindungan data pribadi
+        ├── qdc.py                # Mesin validasi Quality Dimensions Check 4 dimensi
+        └── self_check.py         # 19 assertion pengujian unit logika batas sistem
 ```
 
 Proyek ini menerapkan standar [Conventional Commits](https://www.conventionalcommits.org/):

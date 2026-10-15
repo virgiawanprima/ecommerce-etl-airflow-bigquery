@@ -316,13 +316,13 @@ make verify
 ## 9. Repository Structure and Organized Change History
 
 ```text
-olist-etl-pipeline/
+ecommerce-etl-airflow-bigquery/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                # CI automation: Python linting, DAG integrity, unit test suite
 ├── .dockerignore                 # Excludes secrets, local logs, and raw datasets from build context
 ├── .env.example                  # Secure template for environment variables and GCP configuration
-├── .gitignore                    # Version control exclusion rules for caches, keys, and data
+├── .gitignore                    # Version control exclusion rules for caches, keys, and private data
 ├── Dockerfile                    # Custom Apache Airflow 3.0.6 image with Google Cloud dependencies
 ├── Makefile                      # Standardized test and execution entry points (make verify)
 ├── README.md                     # Main international portfolio documentation (English)
@@ -331,29 +331,27 @@ olist-etl-pipeline/
 ├── requirements.txt              # Pinned Python dependencies (pandas, pyarrow, google-cloud-bigquery)
 ├── config/
 │   └── keys/
-│       └── gcp-sa-key.json       # GCP Service Account key credentials (gitignored for security)
+│       └── .gitkeep              # Mount point for GCP Service Account key (gcp-sa-key.json gitignored)
 ├── dags/
-│   ├── olist_etl_baseline_noqdc.py # Benchmark baseline DAG without quality gate
-│   └── olist_etl_pipeline.py     # Main 5-task production pipeline with integrated QDC gate
-├── src/
-│   ├── utils/
-│   │   ├── __init__.py
-│   │   ├── io_helpers.py         # Vectorized I/O utilities and Parquet read/write routines
-│   │   ├── pii.py                # SHA-256 cryptographic hashing protection for personal data
-│   │   ├── qdc.py                # 4-dimensional Quality Dimensions Check validation engine
-│   │   └── self_check.py         # 19-assertion unit test suite verifying logic boundaries
-│   └── scripts/
-│       ├── __init__.py
-│       └── noise_injection.py    # Synthetic anomaly injector validating fail-fast gate behavior
-├── data/                         # Local storage volumes (gitignored)
-│   ├── _noise_backup/            # Checkpoint backup for synthetic noise test runs
-│   ├── processed/                # Local staging directory for Parquet files and error logs
-│   └── raw/                      # 9 raw CSV dataset files from the Brazilian Olist ecosystem
-├── docs/                         # Detailed performance and empirical testing records
-│   ├── bab4_hasil_pengujian.md   # Comprehensive empirical testing reports and query outputs
-│   ├── jawaban_evaluasi_claude.md# Evaluation response log and Looker Studio reconciliation notes
-│   └── metrik_performa.md        # Consolidated SLA benchmarks and runtime duration logs
-└── logs/                         # Container execution logs (gitignored)
+│   ├── olist_etl_pipeline.py     # Main 5-task production pipeline with integrated QDC gate
+│   └── olist_etl_baseline_noqdc.py # Benchmark baseline DAG without quality gate
+├── data/
+│   ├── processed/
+│   │   └── .gitkeep              # Intermediate staging area for Parquet files (gitignored)
+│   └── raw/
+│       └── .gitkeep              # Target directory for 9 Olist CSV datasets (gitignored)
+├── plugins/
+│   └── .gitkeep                  # Custom Airflow plugins directory (gitignored runtime)
+└── src/
+    ├── scripts/
+    │   ├── __init__.py
+    │   └── noise_injection.py    # Synthetic anomaly injector validating fail-fast gate behavior
+    └── utils/
+        ├── __init__.py
+        ├── io_helpers.py         # Vectorized I/O utilities and Parquet read/write routines
+        ├── pii.py                # SHA-256 cryptographic hashing protection for personal data
+        ├── qdc.py                # 4-dimensional Quality Dimensions Check validation engine
+        └── self_check.py         # 19-assertion unit test suite verifying logic boundaries
 ```
 
 Project development strictly follows the [Conventional Commits](https://www.conventionalcommits.org/) standard to guarantee a transparent, audit-ready version history:
