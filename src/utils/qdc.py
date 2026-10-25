@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from fractions import Fraction
 
 import pandas as pd
 
@@ -39,12 +40,21 @@ class QDCResult:
 
     @property
     def meets_target(self) -> bool:
-        return self.success_rate >= QDC_SUCCESS_TARGET
+        if self.total_records == 0:
+            return True
+        target = Fraction(str(QDC_SUCCESS_TARGET))
+        return (
+            self.passed_records * target.denominator
+            >= self.total_records * target.numerator
+        )
 
     @property
     def triggers_fail_fast(self) -> bool:
-        failure_rate = 1 - self.success_rate
-        return failure_rate > FAIL_FAST_THRESHOLD
+        threshold = Fraction(str(FAIL_FAST_THRESHOLD))
+        return (
+            self.failed_records * threshold.denominator
+            > self.total_records * threshold.numerator
+        )
 
     def summary(self) -> str:
         return (
