@@ -44,6 +44,8 @@ x-airflow-common: &airflow-common
 services:
   postgres:
     image: postgres:16
+    command: ["postgres", "-c", "recovery_init_sync_method=syncfs"]
+    stop_grace_period: 2m
     environment:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
@@ -53,8 +55,9 @@ services:
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "airflow"]
       interval: 10s
-      retries: 5
-      start_period: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5m
     restart: always
 
   redis:
