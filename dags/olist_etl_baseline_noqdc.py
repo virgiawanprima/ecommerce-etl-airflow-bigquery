@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 RAW_DATA_DIR = "/opt/airflow/data/raw"
 PROCESSED_DATA_DIR = "/opt/airflow/data/processed"
+STAGING_DATA_DIR = os.path.join(PROCESSED_DATA_DIR, "staging")
 GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "gen-lang-client-0814065913")
 BIGQUERY_DATASET = os.environ.get("BIGQUERY_DATASET", "olist_dw")
 BIGQUERY_LOCATION = os.environ.get("BIGQUERY_LOCATION", "asia-southeast2")
@@ -78,7 +79,7 @@ def olist_etl_baseline_noqdc():
         """Sama persis dengan DAG utama."""
         from google.cloud import bigquery
 
-        os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
+        os.makedirs(STAGING_DATA_DIR, exist_ok=True)
 
         watermark = None
         try:
@@ -102,7 +103,7 @@ def olist_etl_baseline_noqdc():
             if not os.path.exists(src):
                 raise FileNotFoundError(f"Missing source file: {src}")
             df = pd.read_csv(src)
-            out_path = os.path.join(PROCESSED_DATA_DIR, f"{alias}_extracted.parquet")
+            out_path = os.path.join(STAGING_DATA_DIR, f"{alias}_extracted.parquet")
             df.to_parquet(out_path, index=False)
             logger.info(f"Extracted {alias}: {len(df):,} rows -> {out_path}")
             paths[alias] = out_path

@@ -50,6 +50,9 @@ logger = logging.getLogger(__name__)
 
 RAW_DATA_DIR = "/opt/airflow/data/raw"
 PROCESSED_DATA_DIR = "/opt/airflow/data/processed"
+STAGING_DATA_DIR = os.path.join(PROCESSED_DATA_DIR, "staging")
+CLEAN_DATA_DIR = os.path.join(PROCESSED_DATA_DIR, "clean")
+REJECTED_DATA_DIR = os.path.join(PROCESSED_DATA_DIR, "rejected")
 GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "gen-lang-client-0814065913")
 BIGQUERY_DATASET = os.environ.get("BIGQUERY_DATASET", "olist_dw")
 BIGQUERY_LOCATION = os.environ.get("BIGQUERY_LOCATION", "asia-southeast2")
@@ -96,7 +99,7 @@ def olist_etl_pipeline():
         """
         from google.cloud import bigquery
 
-        os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
+        os.makedirs(STAGING_DATA_DIR, exist_ok=True)
 
         # --- Kueri watermark (Bab 3.4.3: logika incremental load) ---
         watermark = None
@@ -140,7 +143,7 @@ def olist_etl_pipeline():
                     f"Velocity simulation: appended {len(sim_df):,} "
                     f"synthetic rows to {alias} from {sim_file}"
                 )
-            out_path = os.path.join(PROCESSED_DATA_DIR, f"{alias}_extracted.parquet")
+            out_path = os.path.join(STAGING_DATA_DIR, f"{alias}_extracted.parquet")
             df.to_parquet(out_path, index=False)
             logger.info(f"Extracted {alias}: {len(df):,} rows -> {out_path}")
             paths[alias] = out_path
@@ -350,14 +353,16 @@ def olist_etl_pipeline():
             passed_df, failed_df, result = run_qdc(df, table_name, **cfg)
 
             if not failed_df.empty:
-                error_path = os.path.join(PROCESSED_DATA_DIR, f"{table_name}_error_log.csv")
+                os.makedirs(REJECTED_DATA_DIR, exist_ok=True)
+                error_path = os.path.join(REJECTED_DATA_DIR, f"{table_name}_error_log.csv")
                 failed_df.to_csv(error_path, index=False)
-                logger.warning(f"{table_name}: {len(failed_df):,} baris diarahkan ke error_log")
+                logger.warning(f"{table_name}: {len(failed_df):,} baris diarahkan ke error_log ({error_path})")
 
             if result.triggers_fail_fast:
                 overall_failures.append(result.summary())
 
-            clean_path = os.path.join(PROCESSED_DATA_DIR, f"{table_name}_clean.parquet")
+            os.makedirs(CLEAN_DATA_DIR, exist_ok=True)
+            clean_path = os.path.join(CLEAN_DATA_DIR, f"{table_name}_clean.parquet")
             passed_df.to_parquet(clean_path, index=False)
             clean_paths[table_name] = clean_path
 
