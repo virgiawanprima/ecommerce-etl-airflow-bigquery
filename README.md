@@ -1,7 +1,7 @@
 <div align="center">
 
-# Enterprise E-Commerce Automated Data Engineering Pipeline
-### Cloud-Native ELT Architecture, Kimball Star Schema, In-Flight Quality Gate, and SHA-256 PII Protection
+# Enterprise E-Commerce Automated Data Pipeline
+### Cloud-Native ELT Pipeline with Apache Airflow 3, BigQuery, Kimball Star Schema, and In-Flight Quality Gate
 
 [![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-3.0.6-017CEE?style=for-the-badge&logo=Apache%20Airflow&logoColor=white)](https://airflow.apache.org/)
 [![Google BigQuery](https://img.shields.io/badge/Google%20BigQuery-Data%20Warehouse-4285F4?style=for-the-badge&logo=google-cloud&logoColor=white)](https://cloud.google.com/bigquery)
@@ -12,162 +12,114 @@
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?style=for-the-badge&logo=github-actions&logoColor=white)](https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery/actions)
 
 <p align="center">
-  <b>Production-grade automated data pipeline processing 112,650 e-commerce transaction records into Google BigQuery using Ralph Kimball Star Schema, Apache Airflow 3 distributed orchestration, watermark incremental loading, cryptographic PII anonymization, and a 4-dimensional in-flight Quality Gate.</b>
+  <b>Production-grade automated data pipeline processing 112,650 Brazilian Olist e-commerce transaction records into Google BigQuery using Ralph Kimball Star Schema, Apache Airflow 3 CeleryExecutor, watermark incremental loading, cryptographic SHA-256 PII protection, and an in-flight 4-dimensional Quality Gate.</b>
 </p>
 
 <p align="center">
   <b>English</b> •
   <a href="README.id.md"><b>Bahasa Indonesia</b></a> •
-  <a href="#1-business-context-and-problem-statement"><b>Business Context</b></a> •
-  <a href="#3-architectural-decisions-and-technical-trade-offs"><b>Architecture & Trade-offs</b></a> •
-  <a href="#4-measurable-verified-impact"><b>Results & Benchmarks</b></a> •
-  <a href="#5-system-architecture-and-end-to-end-data-flow"><b>Data Flow</b></a> •
-  <a href="#7-reproducible-environment-and-local-quickstart"><b>Quickstart</b></a> •
-  <a href="#8-automated-verification-suite"><b>Verification Suite</b></a> •
-  <a href="#11-academic-research-context"><b>Academic Context</b></a>
+  <a href="#about"><b>About</b></a> •
+  <a href="#key-features"><b>Key Features</b></a> •
+  <a href="#system-architecture"><b>Architecture</b></a> •
+  <a href="#data-modeling"><b>Data Modeling</b></a> •
+  <a href="#verified-metrics--benchmarks"><b>Metrics</b></a> •
+  <a href="#quickstart"><b>Quickstart</b></a> •
+  <a href="#verification--testing"><b>Testing</b></a>
 </p>
 
 </div>
 
 ---
 
-## 1. Business Context and Problem Statement
+## 📋 Table of Contents
 
-### 1.1 Context and Operational Landscape
-Modern e-commerce enterprises rely on timely, accurate, and compliant operational data to drive pricing decisions, logistics optimization, and executive reporting. This project addresses the transaction processing lifecycle of the Brazilian Olist e-commerce ecosystem, comprising 112,650 order items, 99,441 unique orders, and 3,095 sellers across 9 relational source tables spanning 2016 through 2018.
-
-### 1.2 Core Business and Technical Problems
-Prior to engineering this automated pipeline, operational analytics suffered from four critical challenges:
-1. **High Analytical Query Latency and Join Complexity:** Querying raw OLTP normalized schemas required 5-way to 8-way joins across gigabytes of operational tables, leading to query timeouts and high scanning costs in columnar data warehouses.
-2. **Data Quality Degradation and Silent Ingestion Failures:** Real-world transaction streams frequently contain data anomalies such as missing customer references, duplicate composite primary keys, negative prices, and malformed strings. Unmonitored batch ingestion allows corrupted records to pollute analytical warehouses, distorting gross merchandise value (GMV) and executive KPIs.
-3. **Regulatory Non-Compliance and PII Exposure:** Transaction logs exposed raw customer identities and plaintext identifiers, directly violating international data protection regulations (such as GDPR and Indonesia UU No. 27 Tahun 2022 on Personal Data Protection / UU PDP).
-4. **Pipeline Inefficiency and Redundant Processing:** Re-ingesting entire historical datasets on daily schedules caused unnecessary cloud processing overhead, network congestion, and extended batch execution windows.
-
----
-
-## 2. Constraints and System Boundaries
-
-1. **Zero-Budget Infrastructure and Sandbox Constraints:** The system was engineered to run seamlessly within the Google Cloud BigQuery Sandbox and containerized local infrastructure without incurring paid compute costs. This imposed strict quotas on API calls, storage policies, and query concurrency.
-2. **BigQuery Sandbox 60-Day Partition Expiration Rule:** Empirical testing revealed that BigQuery Sandbox automatically assigns a 60-day default expiration to partitioned tables. Because the historical Olist dataset dates from 2016 to 2018, partition-by-date policies in Sandbox caused historical partitions to be dropped immediately after ingestion. The production design had to adopt non-partitioned storage to guarantee historical data durability without paid credit card registration.
-3. **Mandatory Cryptographic Pseudonymization:** All customer identification keys (`customer_unique_id`) were required to be irrecoverably hashed using SHA-256 before landing in staging or production analytical tables.
-4. **Strict Fail-Fast Quality Threshold (<5%):** Business requirements mandated that if composite anomaly rates in any batch exceed 5%, the pipeline must immediately abort execution before invoking the `load` step, isolating malformed records into an audit dead-letter log (`fact_sales_error_log.csv`).
+- [📖 About](#about)
+- [✨ Key Features](#key-features)
+- [🏗️ System Architecture](#system-architecture)
+- [📊 Data Modeling](#data-modeling)
+- [⚡ Verified Metrics & Benchmarks](#verified-metrics--benchmarks)
+- [🛠️ Tech Stack](#tech-stack)
+- [📂 Project Structure](#project-structure)
+- [🚀 Quickstart](#quickstart)
+- [🧪 Verification & Testing](#verification--testing)
+- [⚙️ Configuration](#configuration)
+- [📜 License & Academic Context](#license--academic-context)
 
 ---
 
-## 3. Architectural Decisions and Technical Trade-Offs
+## 📖 About
 
-### 3.1 Kimball Star Schema vs OLTP Denormalization
-- **Choice:** Dimensional modeling based on Ralph Kimball Star Schema, featuring 1 centralized fact table (`fact_sales`) and 5 conformed dimension tables (`dim_customers`, `dim_products`, `dim_sellers`, `dim_orders`, `dim_date`).
-- **Trade-off:** Denormalizing into a single wide flat table would eliminate joins entirely but create massive row redundancy across 32,951 products and 99,441 customers, increasing storage costs and ETL maintenance overhead. The Star Schema reduces query join depth from 9 tables to single-hop joins while preserving clean analytical granularity.
+This project engineers an enterprise-grade, automated ELT data pipeline for the Brazilian Olist e-commerce dataset (112,650 order items across 9 relational source tables spanning 2016–2018). It transforms fragmented OLTP data into an analytical data warehouse hosted on Google BigQuery, powering executive Looker Studio dashboards with sub-second query latency.
 
-### 3.2 In-Memory PyArrow and Pandas vs Apache Spark
-- **Choice:** Python 3.12 with PyArrow and vectorized Pandas.
-- **Trade-off:** For batch volumes of 112,650 records (approximately 100 MB raw CSV data), running a distributed Apache Spark cluster introduces substantial JVM initialization latency, worker serialization overhead, and cluster infrastructure costs. In-memory PyArrow processing completes full transformation in approximately 3 seconds on a single core with less than 500 MB RAM consumption. Spark remains the designated scaling path once batch volumes exceed 50 million rows.
+### Core Problems Solved
 
-### 3.3 Watermark-Driven Incremental Ingestion vs Full Table Refresh
-- **Choice:** High-watermark incremental ingestion querying BigQuery `MAX(order_date)`.
-- **Trade-off:** Full table refreshes (`WRITE_TRUNCATE`) guarantee idempotency but waste bandwidth and BigQuery storage write API operations as data grows. The watermark strategy selectively appends new delta transactions (`WRITE_APPEND`) while refreshing conformed dimensions, reducing delta payload transmission by over 99% during steady-state runs.
-
-### 3.4 In-DAG Quality Gate vs Post-Ingestion dbt Testing
-- **Choice:** In-DAG Quality Dimensions Check (QDC) engine placed strictly before the BigQuery `load` step.
-- **Trade-off:** Post-load validation tools (such as dbt test or Great Expectations running after warehouse insertion) permit bad records to enter production tables, requiring costly rollbacks or staging cleanup. Embedding validation directly in-flight guarantees zero corrupted records enter the warehouse. The runtime overhead is only +7.9% (+4.55 seconds).
-
-### 3.5 Distributed CeleryExecutor vs LocalExecutor
-- **Choice:** Apache Airflow 3.0.6 orchestrated via CeleryExecutor backed by Redis message queues and PostgreSQL metadata backend across 7 Docker Compose containers.
-- **Trade-off:** CeleryExecutor requires additional operational services (Redis broker, Celery worker) compared to LocalExecutor, but it decouples task execution from the webserver and scheduler, supporting independent worker scaling and crash isolation.
+- **OLTP 3NF Latency:** Eliminates 8-way relational joins by modeling data into a Ralph Kimball Star Schema (single-hop analytical joins).
+- **Silent Ingestion Failures:** Enforces an in-flight Quality Dimensions Check (QDC) gate with a 5% fail-fast threshold, preventing dirty records from reaching production.
+- **PII Privacy Violations:** Irreversibly hashes customer identities with SHA-256 to comply with GDPR and Indonesia UU PDP (No. 27/2022).
+- **Batch Re-ingestion Waste:** Implements watermark-based incremental loading using `MAX(order_date)` from BigQuery, reducing delta data transfer by >99% during steady runs.
+- **BigQuery Sandbox Durability:** Operates on non-partitioned storage to bypass the BigQuery Sandbox 60-day partition expiration limit without paid cloud billing.
 
 ---
 
-## 4. Measurable Verified Impact
+## ✨ Key Features
 
-Every outcome below is supported by reproducible empirical test logs documented in this repository:
-
-| Engineering Dimension | Target / SLA Threshold | Actual Measured Result | Status |
-| :--- | :--- | :--- | :--- |
-| **Batch Processing Velocity** | Less than 15 minutes (900 seconds) | **39 to 57 seconds** (Full Load) | Passed |
-| **Data Quality Gate Pass Rate** | Greater than or equal to 95.0% | **100.0% Pass** on clean data (0 unhandled anomalies) | Passed |
-| **Synthetic Noise Detection Precision** | 100% anomaly detection | **100.0% precision** across 2,252 (2%) and 9,012 (8%) noisy rows | Passed |
-| **Fail-Fast Trigger Enforcement** | Abort `load` if noise is greater than 5% | **Verified**: Load skipped (`try_number=0`), 0 bad rows in warehouse | Passed |
-| **PII Data Privacy Compliance** | Zero plaintext identifiers | **0 plaintext customer IDs**, 100% 64-char SHA-256 entropy | Passed |
-| **Scheduling Regularity** | Deviation less than 5.0% | **+0.6s average deviation** (+1.0s max, 0.56% of interval) | Passed |
-| **Pipeline Reliability (Audit)** | Historical failure rate less than 10% | **4.17% historical failure rate** over 48 DAG runs (46 successes) | Passed |
-
-### Full Load Execution Profile (112,650 records)
-
-| Pipeline Task | Average Duration | Percentage | Execution Responsibilities |
-| :--- | :---: | :---: | :--- |
-| `extract` | 5.0 seconds | 8.3% | Read 9 CSV sources and query BigQuery watermark |
-| `validate_schema` | 1.5 seconds | 2.5% | Verify schema contracts and column presence across 9 tables |
-| `transform` | 2.5 seconds | 4.2% | Join Star Schema, clean datatypes, and apply SHA-256 PII hashing |
-| `qdc_validation` | 3.0 seconds | 5.0% | Test 4 quality dimensions, evaluate 5% fail-fast threshold |
-| `load` | 45.0 seconds | 75.0% | Stream Parquet tables to BigQuery storage APIs in parallel |
-| **Total Pipeline** | **~57.0 seconds** | **100.0%** | **Completed well under 900-second SLA limit** |
-
-### Synthetic Noise Injection and Fail-Fast Test Results
-
-To empirically prove data quality gate behavior, controlled synthetic noise was injected across all 4 quality dimensions:
-
-| Test Scenario | Total Injected Noise | Detected Anomalies | Detection Accuracy | Dead-Letter Log | Fail-Fast Triggered | BigQuery Ingestion |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Clean Baseline** | 0 rows | 0 rows | 100.0% | 0 rows | No | 112,650 rows |
-| **2% Controlled Noise** | 2,252 rows | 2,252 rows | 100.0% | 2,252 rows written | No (under 5% limit) | 110,398 rows loaded |
-| **8% Severe Noise** | 9,012 rows | 9,012 rows | 100.0% | 9,012 rows written | **Yes** (`ValueError`) | **Halted (0 rows loaded)** |
-
-In the 8% scenario, the Airflow scheduler recorded `try_number=0` for the `load` task, proving zero dirty records reached the data warehouse.
-
-### Quality Dimensions Check Overhead Analysis
-
-| Pipeline Mode | Wall Clock Duration | Task Execution Sum | Computational Overhead |
-| :--- | :---: | :---: | :---: |
-| `olist_etl_baseline_noqdc` (without quality gate) | 57.56 seconds | 55.05 seconds | Reference baseline |
-| `olist_etl_pipeline` (with active 4-dimension QDC) | 62.11 seconds | 58.74 seconds | +4.55 seconds |
-| **Net Quality Engine Cost** | **+4.55 seconds** | **+3.69 seconds** | **+7.9% runtime overhead** |
+- **5-Task Modular Airflow DAG:** `extract` → `validate_schema` → `transform` → `qdc_validation` → `load`.
+- **In-Flight Quality Gate (QDC):** Evaluates Completeness, Uniqueness, Consistency, and Validity. Quarantines invalid records to `data/processed/rejected/` and aborts the pipeline if anomalies exceed 5%.
+- **Zero-Trust PII Protection:** High-entropy SHA-256 pseudonymization on `customer_unique_id`.
+- **Hybrid Load Strategy:** Automatic detection between Full Load (`WRITE_TRUNCATE`) on an empty warehouse and Incremental Delta Load (`WRITE_APPEND`) via high-watermark querying.
+- **Decoupled 3-Tier Storage:** Structured local processing pipeline (`staging/`, `clean/`, `rejected/`).
+- **Comprehensive Self-Contained Testing:** Automated DAG integrity checks, 19-assertion unit verification (`self_check.py`), boundary condition tests, and synthetic noise injection scripts.
 
 ---
 
-## 5. System Architecture and End-to-End Data Flow
+## 🏗️ System Architecture
 
-```
-┌─────────────────────────┐       ┌───────────────────────────────┐       ┌─────────────────────────┐       ┌────────────────────────┐
-│     9 Raw CSV Files     │  ───> │   Apache Airflow 3.0.6        │  ───> │  Google BigQuery        │  ───> │  Looker Studio         │
-│     data/raw/           │       │   CeleryExecutor (7 Services) │       │  Dataset: olist_dw      │       │  Executive BI          │
-└─────────────────────────┘       └───────────────────────────────┘       └─────────────────────────┘       └────────────────────────┘
-    99,441 Orders                      5-Task Modular Pipeline                 6 Star Schema Tables                Live BigQuery Query
-    112,650 Order Items                Execution Duration: ~60s                Region: asia-southeast2             Interactive Dashboards
+```mermaid
+flowchart LR
+    subgraph S1["1. Raw Data"]
+        CSV["9 Olist CSV Files\n(112,650 records)"]
+    end
+
+    subgraph S2["2. Apache Airflow 3 (CeleryExecutor)"]
+        T1["extract\n(PyArrow + Watermark)"]
+        T2["validate_schema\n(Contract Check)"]
+        T3["transform\n(Star Schema + SHA-256)"]
+        T4{"qdc_validation\n(4 Dimensions)"}
+        T5["load\n(Streaming Parquet)"]
+        ERR["Quarantine Log\n(rejected/fact_sales_error_log.csv)"]
+
+        T1 --> T2 --> T3 --> T4
+        T4 -- "Pass (anomalies <= 5%)" --> T5
+        T4 -. "Fail-Fast (> 5%) / Anomalies" .-> ERR
+    end
+
+    subgraph S3["3. Data Warehouse"]
+        BQ[("Google BigQuery\nDataset: olist_dw\n(6 Star Schema Tables)")]
+    end
+
+    subgraph S4["4. Business Intelligence"]
+        BI["Looker Studio\nExecutive Dashboards\n(<1s Query Response)"]
+    end
+
+    CSV --> T1
+    T5 --> BQ --> BI
 ```
 
-### Infrastructure and Service Composition
+### Pipeline Tasks
 
-| Service Name | Component and Version | Functional Responsibility |
-| :--- | :--- | :--- |
-| `airflow-webserver` | Apache Airflow 3.0.6 UI | Web user interface, authentication, DAG inspection, and task monitoring |
-| `airflow-scheduler` | Airflow Scheduler Engine | DAG parsing, dependency evaluation, cron scheduling, and state coordination |
-| `airflow-worker` | Celery Worker (Python 3.12) | Distributed execution of data extraction, validation, transformation, and load |
-| `airflow-triggerer` | Airflow Triggerer Engine | Asynchronous deferred event handling and sensor monitoring |
-| `postgres` | PostgreSQL 16 Alpine | Relational metadata store tracking DAG runs, task instances, and XCom payloads |
-| `redis` | Redis 7.2 Alpine | In-memory message broker queuing tasks for distributed Celery workers |
-| `bigquery` | Google Cloud BigQuery | Cloud-native serverless analytical columnar data warehouse |
-
-### Pipeline Workflow and Task Execution
-
-```
-[ extract ] ──> [ validate_schema ] ──> [ transform ] ──> [ qdc_validation ] ──> [ load ]
-```
-
-1. **Extract (`extract`):** Reads 9 raw CSV files from `data/raw/` via vectorized PyArrow. Concurrently queries the destination BigQuery warehouse for `MAX(order_date)` to dynamically decide between Full Load (`WRITE_TRUNCATE`) and Incremental Delta Load (`WRITE_APPEND`).
-2. **Validate Schema (`validate_schema`):** Enforces schema contracts across all tables. Detects missing mandatory columns or unexpected structural mutations with immediate fail-fast termination before memory-heavy operations begin.
-3. **Transform (`transform`):** Cleans dates, standardizes datatypes, constructs the Kimball Star Schema joins, filters delta rows when watermark is present, and hashes `customer_unique_id` using SHA-256 for privacy compliance.
-4. **QDC Validation (`qdc_validation`):** Evaluates data across 4 dimensions:
-   - *Completeness:* Enforces NOT NULL constraints on mandatory keys and financial metrics.
-   - *Uniqueness:* Enforces composite primary key uniqueness (`order_id` + `order_item_id`).
-   - *Consistency:* Validates foreign key integrity across fact and dimension tables.
-   - *Validity:* Enforces domain rules (`price >= 0`, `freight_value >= 0`, valid calendar dates).
-   If anomaly ratio is greater than 5%, execution halts with `ValueError`, and bad records are routed to `data/processed/fact_sales_error_log.csv`.
-5. **Load (`load`):** Uploads validated Parquet files to Google BigQuery. Incorporates automated exponential backoff retry policies (3 attempts with 5-minute delays).
+| Task | Execution Scope |
+| :--- | :--- |
+| `extract` | Reads 9 CSV files via vectorized PyArrow and queries BigQuery for `MAX(order_date)`. |
+| `validate_schema` | Validates column presence and schema contracts; halts immediately if malformed. |
+| `transform` | Applies date parsing, Star Schema joins, delta filtering, and SHA-256 PII hashing. |
+| `qdc_validation` | Evaluates 4 quality dimensions; quarantines bad records and halts if anomaly rate > 5%. |
+| `load` | Loads clean Parquet tables into Google BigQuery with exponential retry backoff. |
 
 ---
 
-## 6. Data Modeling: Star Schema
+## 📊 Data Modeling
+
+The data warehouse uses a Ralph Kimball Star Schema with 1 centralized fact table and 5 conformed dimension tables:
 
 ```mermaid
 erDiagram
@@ -188,33 +140,28 @@ erDiagram
         FLOAT price
         FLOAT freight_value
     }
-
     dim_customers {
         STRING customer_id PK
         STRING customer_unique_id
         STRING customer_city
         STRING customer_state
     }
-
     dim_products {
         STRING product_id PK
         STRING product_category_name
         STRING product_category_name_english
     }
-
     dim_sellers {
         STRING seller_id PK
         STRING seller_city
         STRING seller_state
     }
-
     dim_orders {
         STRING order_id PK
         STRING customer_id FK
         STRING order_status
         DATETIME order_purchase_timestamp
     }
-
     dim_date {
         INT date_key PK
         DATE date
@@ -227,160 +174,164 @@ erDiagram
     }
 ```
 
-### Table Specifications and Granularity
-
-| Table Name | Role | Record Count | Primary Key / Composite Key | Grain Description |
+| Table Name | Type | Records | Primary / Composite Key | Grain Description |
 | :--- | :--- | :---: | :--- | :--- |
-| `fact_sales` | Fact | 112,650 | `order_id` + `order_item_id` | Individual product item within a completed customer order |
-| `dim_customers` | Dimension | 99,441 | `customer_id` | Customer geographical location and hashed identity |
-| `dim_products` | Dimension | 32,951 | `product_id` | Product catalog categories (Portuguese and English) |
-| `dim_sellers` | Dimension | 3,095 | `seller_id` | Merchant geographical location (city, state) |
+| `fact_sales` | Fact | 112,650 | `order_id` + `order_item_id` | Individual item within a customer order |
+| `dim_customers` | Dimension | 99,441 | `customer_id` | Customer location and SHA-256 hashed identity |
+| `dim_products` | Dimension | 32,951 | `product_id` | Product catalog categories (PT and EN) |
+| `dim_sellers` | Dimension | 3,095 | `seller_id` | Merchant geographic location |
 | `dim_orders` | Dimension | 99,441 | `order_id` | Order status and lifecycle purchase timestamp |
-| `dim_date` | Dimension | 634 | `date_key` (YYYYMMDD) | Calendar attributes, quarter, day of week, weekend flags |
+| `dim_date` | Dimension | 634 | `date_key` (YYYYMMDD) | Calendar attributes, quarter, day of week, weekend flag |
 
 ---
 
-## 7. Reproducible Environment and Local Quickstart
+## ⚡ Verified Metrics & Benchmarks
+
+All metrics below are derived from empirical test runs documented in [`docs/bab4_hasil_pengujian.md`](docs/bab4_hasil_pengujian.md) and [`docs/metrik_performa.md`](docs/metrik_performa.md):
+
+| Dimension | Target / SLA | Verified Result | Status |
+| :--- | :--- | :--- | :---: |
+| **Pipeline Duration (Full Load)** | < 15 min (900s) | **39 – 57 seconds** | Passed |
+| **Clean Data Quality Gate** | >= 95.0% pass | **100.0% pass** (112,650 clean records, 0 unhandled anomalies) | Passed |
+| **Synthetic Noise Detection** | 100% precision | **100.0% precision** (detected all 2,252 rows in 2% test and 9,012 rows in 8% test) | Passed |
+| **Fail-Fast Enforcement** | Abort if noise > 5% | **Verified**: `load` task skipped (`try_number=0`), 0 bad records loaded | Passed |
+| **QDC Engine Overhead** | Minimal impact | **+4.55s (+7.9%)** computational overhead | Passed |
+| **PII Anonymization** | Zero plaintext leaks | **0 plaintext customer IDs**, 100% SHA-256 64-char hashes | Passed |
+| **Looker Studio BI Latency** | Interactive (<3s) | **< 1s query response** on BigQuery Star Schema | Passed |
+| **Scheduler Stability** | Deviation < 5.0% | **+0.6s average deviation** (+1.0s max, 0.56% of interval) | Passed |
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology | Version | Purpose |
+| :--- | :--- | :--- | :--- |
+| **Orchestration** | Apache Airflow | 3.0.6 | Distributed workflow scheduling and monitoring (CeleryExecutor) |
+| **Data Warehouse** | Google Cloud BigQuery | Cloud-Native | Columnar data warehouse (dataset: `olist_dw`, region: `asia-southeast2`) |
+| **Processing Engine** | Python / PyArrow / Pandas | 3.12 / Vectorized | In-memory ETL processing, schema validation, and Star Schema joins |
+| **Message Broker** | Redis | 7.2 Alpine | Task queue backend for Airflow Celery workers |
+| **Metadata Store** | PostgreSQL | 16 Alpine | Airflow operational metadata and task state tracking |
+| **Containerization** | Docker Compose | v2+ | 7 isolated microservices running in local / WSL2 environment |
+| **Business Intelligence** | Google Looker Studio | Cloud-Native | Interactive executive reporting dashboards |
+| **CI / Automation** | GitHub Actions | Ubuntu Latest | Automated linting, DAG integrity check, and unit test suites |
+
+---
+
+## 📂 Project Structure
+
+```text
+ecommerce-etl-airflow-bigquery/
+├── .github/workflows/ci.yml       # CI: Linting, DAG check, 19 unit assertions
+├── config/keys/                  # GCP service account credentials (gcp-sa-key.json gitignored)
+├── dags/
+│   ├── olist_etl_pipeline.py     # Production 5-task ELT DAG with integrated QDC gate
+│   └── olist_etl_baseline_noqdc.py # Benchmark baseline DAG without quality gate
+├── data/
+│   ├── processed/                # Local runtime data processing
+│   │   ├── clean/                # Validated Parquet files ready for BigQuery
+│   │   ├── rejected/             # Quarantined anomaly logs (fact_sales_error_log.csv)
+│   │   └── staging/              # Intermediate extraction and Star Schema staging
+│   └── raw/                      # 9 raw Olist CSV source datasets (gitignored)
+├── docs/                         # Extended thesis documentation and benchmark reports
+├── src/
+│   ├── scripts/
+│   │   └── noise_injection.py    # Synthetic anomaly injector for fail-fast validation
+│   └── utils/
+│       ├── io_helpers.py         # Vectorized I/O routines with subdirectory routing
+│       ├── pii.py                # SHA-256 cryptographic PII pseudonymization
+│       ├── qdc.py                # 4-dimensional Quality Dimensions Check engine
+│       └── self_check.py         # 19-assertion unit verification suite
+├── tests/
+│   └── test_qdc_boundary.py      # Unit tests for QDC fail-fast boundary logic
+├── docker-compose.yml            # 7 Airflow services (Webserver, Scheduler, Worker, Redis, Postgres)
+├── Dockerfile                    # Custom Airflow 3.0.6 image with GCP dependencies
+├── Makefile                      # Standard CLI shortcuts for checking, running, and verifying
+├── requirements.txt              # Pinned Python package dependencies
+└── .env.example                  # Environment configuration template
+```
+
+---
+
+## 🚀 Quickstart
 
 ### Prerequisites
-- Docker Engine 24+ and Docker Compose v2+ (WSL2 supported on Windows).
-- Google Cloud Platform account with BigQuery Admin / Data Editor permissions.
-- Olist dataset 9 raw CSV files placed in `data/raw/`.
+- Docker Engine 24+ & Docker Compose v2+ (WSL2 supported on Windows).
+- Google Cloud Platform account with BigQuery Admin / Data Editor access.
+- 9 raw Olist CSV files placed in `data/raw/`.
 
-### Installation Steps
+### 1. Setup Environment & Credentials
+```bash
+cp .env.example .env
+# Edit .env: set GCP_PROJECT_ID, BIGQUERY_DATASET, and BIGQUERY_LOCATION
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery.git
-   cd ecommerce-etl-airflow-bigquery
-   ```
+# Place your GCP Service Account JSON key:
+cp /path/to/your-key.json config/keys/gcp-sa-key.json
+```
 
-2. **Configure environment variables:**
-   ```bash
-   cp .env.example .env
-   ```
-   Set your `GCP_PROJECT_ID`, `BIGQUERY_DATASET`, and local path variables inside `.env`.
+### 2. Launch Airflow Infrastructure
+```bash
+docker compose up -d
+```
+*Access Airflow Web UI at `http://localhost:8080` (Credentials: `airflow` / `airflow`).*
 
-3. **Install GCP service account credentials:**
-   Save your Google Cloud Service Account key to:
-   ```
-   config/keys/gcp-sa-key.json
-   ```
+### 3. Run Pipeline
+```bash
+docker compose exec airflow-scheduler airflow dags trigger olist_etl_pipeline
+# Or simply:
+make run
+```
 
-4. **Launch Airflow infrastructure:**
-   ```bash
-   docker compose up -d
-   ```
+---
 
-5. **Trigger pipeline execution:**
-   ```bash
-   docker compose exec airflow-scheduler airflow dags trigger olist_etl_pipeline
-   ```
+## 🧪 Verification & Testing
 
-6. **Access Airflow web interface:**
-   Navigate to `http://localhost:8080` (Default credentials: `airflow` / `airflow`).
+Run all automated checks locally via `Makefile` without external test dependencies:
 
-### BigQuery Verification Query
+```bash
+make verify    # Runs dag-check, self-check, and live BigQuery row count verification
+```
 
-Execute the following query in the Google BigQuery Console to verify table population:
+| Command | Verification Scope |
+| :--- | :--- |
+| `make check` | Runs both `dag-check` and `self-check`. |
+| `make dag-check` | Verifies Python syntax, 5-task DAG registration, and pip dependency tree. |
+| `make self-check` | Executes 19 assert-based unit tests for QDC logic, fail-fast boundary, and SHA-256. |
+| `make bq-verify` | Queries BigQuery directly to verify row counts across all 6 Star Schema tables. |
+| `make run-baseline` | Runs the baseline pipeline without QDC to measure runtime differences. |
 
+### BigQuery Live Verification Query
 ```sql
 SELECT 
     COUNT(*) AS total_sales_records,
     COUNT(DISTINCT order_id) AS total_orders,
     ROUND(SUM(price), 2) AS total_gross_revenue_brl
 FROM `your-gcp-project.olist_dw.fact_sales`;
--- Expected Target: 112,650 rows | 98,666 unique orders | R$ 13,591,248.91 gross revenue
+-- Expected Target: 112,650 rows | 98,666 unique orders | R$ 13,591,643.70 gross revenue
 ```
 
 ---
 
-## 8. Automated Verification Suite
+## ⚙️ Configuration
 
-The repository contains an automated verification suite via `Makefile` requiring zero external test dependencies:
+Key environment variables defined in `.env.example`:
 
-```bash
-make verify
-```
-
-| Makefile Target | Test Scope and Verification Coverage |
-| :--- | :--- |
-| `make dag-check` | Verifies Python syntax, 5-task DAG registration, and pip dependency tree integrity |
-| `make self-check` | Executes 19 assert-based unit tests for QDC logic, fail-fast boundary, and SHA-256 hashing |
-| `make bq-verify` | Directly queries BigQuery to confirm actual live row counts for all 6 Star Schema tables |
-| `make run` | Triggers an idempotent execution of the main `olist_etl_pipeline` DAG |
-| `make run-baseline` | Triggers the baseline pipeline without QDC to measure runtime differences |
+| Variable | Default Value | Description |
+| :--- | :--- | :--- |
+| `AIRFLOW_UID` | `50000` | POSIX UID for Airflow container processes. |
+| `_AIRFLOW_WWW_USER_USERNAME` | `airflow` | Default Airflow Web UI administrator username. |
+| `_AIRFLOW_WWW_USER_PASSWORD` | `airflow` | Default Airflow Web UI administrator password. |
+| `GCP_PROJECT_ID` | `your-gcp-project-id` | Google Cloud project hosting BigQuery. |
+| `BIGQUERY_DATASET` | `olist_dw` | Target dataset name for the Star Schema warehouse. |
+| `BIGQUERY_LOCATION` | `asia-southeast2` | Geographic compute region for BigQuery tables. |
 
 ---
 
-## 9. Repository Structure and Organized Change History
+## 📜 License & Academic Context
 
-```text
-ecommerce-etl-airflow-bigquery/
-├── .github/
-│   └── workflows/
-│       └── ci.yml                # CI automation: Python linting, DAG integrity, unit test suite
-├── .dockerignore                 # Excludes secrets, local logs, and raw datasets from build context
-├── .env.example                  # Secure template for environment variables and GCP configuration
-├── .gitignore                    # Version control exclusion rules for caches, keys, and private data
-├── Dockerfile                    # Custom Apache Airflow 3.0.6 image with Google Cloud dependencies
-├── Makefile                      # Standardized test and execution entry points (make verify)
-├── README.md                     # Main international portfolio documentation (English)
-├── README.id.md                  # Comprehensive documentation in Bahasa Indonesia
-├── docker-compose.yml            # 7 Airflow microservices (CeleryExecutor, Redis, PostgreSQL)
-├── requirements.txt              # Pinned Python dependencies (pandas, pyarrow, google-cloud-bigquery)
-├── config/
-│   └── keys/
-│       └── .gitkeep              # Mount point for GCP Service Account key (gcp-sa-key.json gitignored)
-├── dags/
-│   ├── olist_etl_pipeline.py     # Main 5-task production pipeline with integrated QDC gate
-│   └── olist_etl_baseline_noqdc.py # Benchmark baseline DAG without quality gate
-├── data/
-│   ├── processed/
-│   │   └── .gitkeep              # Intermediate staging area for Parquet files (gitignored)
-│   └── raw/
-│       └── .gitkeep              # Target directory for 9 Olist CSV datasets (gitignored)
-├── plugins/
-│   └── .gitkeep                  # Custom Airflow plugins directory (gitignored runtime)
-└── src/
-    ├── scripts/
-    │   ├── __init__.py
-    │   └── noise_injection.py    # Synthetic anomaly injector validating fail-fast gate behavior
-    └── utils/
-        ├── __init__.py
-        ├── io_helpers.py         # Vectorized I/O utilities and Parquet read/write routines
-        ├── pii.py                # SHA-256 cryptographic hashing protection for personal data
-        ├── qdc.py                # 4-dimensional Quality Dimensions Check validation engine
-        └── self_check.py         # 19-assertion unit test suite verifying logic boundaries
-```
-
-Project development strictly follows the [Conventional Commits](https://www.conventionalcommits.org/) standard to guarantee a transparent, audit-ready version history:
-
-- `feat`: Addition of new pipeline stages, transformation logic, or quality check features.
-- `fix`: Bug resolutions such as DAG registration scoping, object datatype coercion, or join cardinality fixes.
-- `refactor`: Structural codebase improvements without modifying functional execution outputs.
-- `docs`: Additions or refinements to technical documentation, performance logs, and README case studies.
-- `ci`: Updates to GitHub Actions workflows, test configurations, or container build matrices.
-- `chore`: Maintenance tasks including gitignore configurations and dependency bumps.
-
----
-
-## 10. System Limitations and Future Engineering Roadmap
-
-1. **BigQuery Sandbox Partitioning Boundary:** In the current sandbox environment, table partitioning is disabled to avoid the automatic 60-day deletion of historical data (2016-2018). In an enterprise production deployment with active Google Cloud billing, tables should be migrated to daily ingestion-time partitioning (`PARTITION BY order_date`) paired with clustering on `customer_state` and `product_id` to optimize query scan efficiency on multi-terabyte tables.
-2. **Horizontal Worker Autoscaling:** The current CeleryExecutor deployment runs on a single container host. Scaling to enterprise streaming velocities can be achieved by transitioning worker orchestration to Kubernetes via the Apache Airflow KubernetesExecutor or CeleryKubernetesExecutor.
-3. **Data Contract Management:** Future enhancements can integrate schema contract definitions utilizing Great Expectations or dbt contract enforcement to detect upstream source format shifts automatically.
-
----
-
-## 11. Academic Research Context
-
-This engineering project was originally conceived and validated as the technical implementation for an undergraduate engineering thesis:
-- **Project Title:** Implementasi Pipeline ETL dan Dashboard Analitik Data Transaksi E-Commerce menggunakan Apache Airflow dan Google BigQuery
-- **Institution:** Politeknik Negeri Samarinda, 2026
-- **Specialization:** Data Engineering & Analytics Engineering
-
----
+- **Academic Context:** Developed as the technical implementation for an undergraduate engineering thesis at **Politeknik Negeri Samarinda (2026)**.
+- **Dataset Attribution:** Brazilian E-Commerce Public Dataset by [Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) on Kaggle.
+- **Detailed Documentation:** In-depth architectural trade-offs, testing results, and evaluation responses are documented in [`docs/`](docs/).
+- **License:** Open-source under the [MIT License](LICENSE).
 
 <div align="center">
   <sub>Engineered with rigorous adherence to clean code, verifiable technical impact, and enterprise data reliability standards.</sub>

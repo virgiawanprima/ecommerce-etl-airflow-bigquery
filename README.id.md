@@ -1,7 +1,7 @@
 <div align="center">
 
 # Pipeline Rekayasa Data E-Commerce Terotomatisasi
-### Arsitektur ELT Cloud-Native, Star Schema Kimball, Gerbang Kualitas In-Flight, dan Proteksi PII SHA-256
+### Arsitektur ELT Cloud-Native dengan Apache Airflow 3, BigQuery, Star Schema Kimball, dan Gerbang Kualitas In-Flight
 
 [![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-3.0.6-017CEE?style=for-the-badge&logo=Apache%20Airflow&logoColor=white)](https://airflow.apache.org/)
 [![Google BigQuery](https://img.shields.io/badge/Google%20BigQuery-Data%20Warehouse-4285F4?style=for-the-badge&logo=google-cloud&logoColor=white)](https://cloud.google.com/bigquery)
@@ -12,118 +12,114 @@
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?style=for-the-badge&logo=github-actions&logoColor=white)](https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery/actions)
 
 <p align="center">
-  <b>Pipeline data otomatis berstandar produksi yang memproses 112.650 baris data transaksi e-commerce ke Google BigQuery menggunakan pemodelan Star Schema Ralph Kimball, orkestrasi terdistribusi Apache Airflow 3, muat inkremental berbasis penanda batas air (watermark), anonimisasi kriptografis PII, dan gerbang Quality Gate 4 dimensi.</b>
+  <b>Pipeline data otomatis berstandar produksi yang memproses 112.650 baris data transaksi e-commerce Olist Brazil ke Google BigQuery menggunakan Star Schema Ralph Kimball, orkestrasi CeleryExecutor Apache Airflow 3, muat inkremental watermark, anonimisasi kriptografis PII SHA-256, dan Quality Gate in-flight 4 dimensi.</b>
 </p>
 
 <p align="center">
   <a href="README.md"><b>English Version</b></a> •
   <b>Bahasa Indonesia</b> •
-  <a href="#1-konteks-dan-masalah-bisnis"><b>Konteks Bisnis</b></a> •
-  <a href="#3-keputusan-arsitektur-dan-pertimbangan-teknis"><b>Arsitektur & Trade-off</b></a> •
-  <a href="#4-dampak-terukur-dan-bukti-pengujian-empiris"><b>Hasil & Metrik</b></a> •
-  <a href="#7-panduan-replikasi-dan-pengujian-lokal"><b>Panduan Menjalankan</b></a> •
-  <a href="#8-suite-pengujian-otomatis-mandiri"><b>Pengujian Mandiri</b></a> •
-  <a href="#11-konteks-penelitian-akademik"><b>Konteks Akademik</b></a>
+  <a href="#tentang"><b>Tentang</b></a> •
+  <a href="#fitur-utama"><b>Fitur Utama</b></a> •
+  <a href="#arsitektur-sistem"><b>Arsitektur</b></a> •
+  <a href="#pemodelan-data"><b>Pemodelan Data</b></a> •
+  <a href="#metrik-dan-benchmark-terverifikasi"><b>Metrik</b></a> •
+  <a href="#mulai-cepat"><b>Mulai Cepat</b></a> •
+  <a href="#pengujian-dan-verifikasi"><b>Pengujian</b></a>
 </p>
 
 </div>
 
 ---
 
-## 1. Konteks dan Masalah Bisnis
+## 📋 Daftar Isi
 
-### 1.1 Konteks dan Lanskap Operasional
-Organisasi e-commerce modern sangat bergantung pada ketersediaan data transaksi yang cepat, akurat, dan patuh regulasi untuk mendukung penetapan harga dinamis, optimasi logistik, serta pelaporan eksekutif. Proyek ini menangani siklus pemrosesan data transaksi dari ekosistem e-commerce Olist Brazil yang terdiri dari 112.650 baris item pesanan, 99.441 pesanan unik, dan 3.095 penjual dari 9 tabel relasional publik rentang tahun 2016 sampai 2018.
-
-### 1.2 Masalah Utama Bisnis dan Teknis
-Sebelum implementasi pipeline terotomatisasi ini dirancang, operasional analitik menghadapi kendala signifikan:
-1. **Latensi Kueri Tinggi akibat Kompleksitas Join OLTP:** Analisis bisnis terhadap skema normalisasi transaksional membutuhkan operasi join 5 hingga 8 tabel relasional berukuran besar, memicu timeout kueri dan membengkaknya biaya pemindaian komputasi (*query scan cost*) pada data warehouse kolumnar.
-2. **Kerusakan Kualitas Data dan Ingestion Gagal Senyap:** Aliran transaksi riil kerap mengandung anomali data seperti hilangnya referensi pelanggan, duplikasi kunci komposit, nilai harga negatif, dan anomali tipe data. Pemuatan data tanpa validasi gerbang menyebabkan data rusak masuk ke data warehouse dan mendistorsi metrik pendapatan (*Gross Merchandise Value*).
-3. **Ketidakpatuhan Regulasi Privasi Data Pribadi:** Data transaksi mentah mengekspos identitas pelanggan langsung dalam bentuk teks terbaca (*plaintext*), melanggar regulasi privasi data seperti UU No. 27 Tahun 2022 tentang Pelindungan Data Pribadi (UU PDP) dan regulasi internasional seperti GDPR.
-4. **Inefisiensi Batch ETL Berulang:** Pemrosesan ulang seluruh data historis setiap hari membebani jaringan dan memperpanjang jendela eksekusi batch tanpa memberikan nilai tambah.
-
----
-
-## 2. Hambatan dan Batasan Sistem
-
-1. **Batasan Anggaran Komputasi Nol (Free-Tier Sandbox):** Sistem dirancang agar dapat beroperasi penuh pada tingkat gratis Google BigQuery Sandbox dan infrastruktur kontainer lokal tanpa menimbulkan biaya komputasi berbayar. Hal ini menuntut efisiensi kuota API dan manajemen penyimpanan yang ketat.
-2. **Kebijakan Kedaluwarsa Partisi 60 Hari pada BigQuery Sandbox:** Pengujian empiris membuktikan bahwa BigQuery Sandbox menetapkan masa aktif partisi maksimal 60 hari. Karena data historis Olist berasal dari 2016 sampai 2018, partisi tabel otomatis terhapus sesaat setelah dimuat. Arsitektur sistem mengadopsi tabel non-partitioned agar seluruh data historis tersimpan persisten secara utuh.
-3. **Kewajiban Pseudonimisasi Kriptografis PII:** Seluruh identitas unik pelanggan (`customer_unique_id`) wajib dienkripsi satu arah menggunakan algoritma SHA-256 sebelum dimuat ke tabel pementasan maupun gudang data.
-4. **Kebijakan Ambang Batas Fail-Fast Ketat (<5%):** Jika rasio anomali data dalam satu batch melebihi 5%, pipeline wajib menghentikan eksekusi secara otomatis sebelum tahap pemuatan (*load*), serta mengalihkan data cacat ke berkas audit dead-letter (`fact_sales_error_log.csv`).
+- [📖 Tentang](#tentang)
+- [✨ Fitur Utama](#fitur-utama)
+- [🏗️ Arsitektur Sistem](#arsitektur-sistem)
+- [📊 Pemodelan Data](#pemodelan-data)
+- [⚡ Metrik dan Benchmark Terverifikasi](#metrik-dan-benchmark-terverifikasi)
+- [🛠️ Tech Stack](#tech-stack)
+- [📂 Struktur Repositori](#struktur-repositori)
+- [🚀 Mulai Cepat](#mulai-cepat)
+- [🧪 Pengujian dan Verifikasi](#pengujian-dan-verifikasi)
+- [⚙️ Konfigurasi](#konfigurasi)
+- [📜 Lisensi dan Konteks Akademik](#lisensi-dan-konteks-akademik)
 
 ---
 
-## 3. Keputusan Arsitektur dan Pertimbangan Teknis
+## 📖 Tentang
 
-### 3.1 Star Schema Ralph Kimball Dibandingkan Denormalisasi Tabel Tunggal
-- **Keputusan:** Mengadopsi pemodelan dimensional Star Schema Ralph Kimball yang terdiri dari 1 tabel fakta transaksi (`fact_sales`) dan 5 tabel dimensi (`dim_customers`, `dim_products`, `dim_sellers`, `dim_orders`, `dim_date`).
-- **Analisis Trade-Off:** Denormalisasi tabel tunggal yang sangat lebar (*wide flat table*) memang meniadakan operasi join, namun menciptakan redundansi data ekstrem untuk 32.951 produk dan 99.441 pelanggan. Star Schema membatasi join menjadi satu langkah relasi langsung dari fakta ke dimensi, mempercepat kueri analitik Looker Studio menjadi di bawah satu detik sekaligus menjaga efisiensi penyimpanan.
+Proyek ini merekayasa pipeline data ELT terotomatisasi berstandar industri untuk dataset e-commerce Olist Brazil (112.650 baris item pesanan dari 9 tabel relasional sumber rentang 2016 sampai 2018). Pipeline ini mentransformasikan data OLTP ternormalisasi menjadi gudang data analitik di Google BigQuery untuk mendukung dashboard eksekutif Looker Studio dengan latensi kueri di bawah satu detik.
 
-### 3.2 Pemrosesan PyArrow dan Pandas In-Memory Dibandingkan Apache Spark
-- **Keputusan:** Memanfaatkan Python 3.12 dengan pustaka tervektorisasi PyArrow dan Pandas.
-- **Analisis Trade-Off:** Untuk volume 112.650 baris data (sekitar 100 MB data mentah), klaster terdistribusi Apache Spark membutuhkan overhead inisialisasi JVM dan serialisasi antar-worker selama beberapa menit. PyArrow in-memory menyelesaikan seluruh transformasi dalam waktu 3 detik pada satu inti CPU dengan memori di bawah 500 MB.
+### Masalah Utama yang Diselesaikan
 
-### 3.3 Muat Inkremental Berbasis Watermark Dibandingkan Muat Penuh
-- **Keputusan:** Menggunakan penanda batas air (*watermark*) `MAX(order_date)` langsung dari BigQuery.
-- **Analisis Trade-Off:** Muat ulang penuh (*WRITE_TRUNCATE*) menjamin konsistensi tetapi memboroskan kuota penulisan API BigQuery. Mekanisme watermark secara otomatis memisahkan transaksi baru untuk ditambahkan (*WRITE_APPEND*) sambil memperbarui dimensi yang sesuai, menghemat transfer data lebih dari 99% pada kondisi operasional stabil.
-
-### 3.4 Gerbang Kualitas In-DAG Dibandingkan Audit Pasca-Muat
-- **Keputusan:** Menerapkan mesin Quality Dimensions Check (QDC) terintegrasi langsung di dalam DAG sebelum task `load`.
-- **Analisis Trade-Off:** Pengecekan kualitas setelah data masuk gudang data (misalnya pengujian dbt) memungkinkan data cacat sempat terbaca oleh dashboard bisnis. Menempatkan gerbang kualitas sebelum muat menjamin hanya data bersih yang masuk ke BigQuery, dengan biaya overhead komputasi yang sangat rendah (hanya +7,9% atau +4,55 detik).
-
-### 3.5 CeleryExecutor Terdistribusi pada Docker Compose
-- **Keputusan:** Menggunakan Apache Airflow 3.0.6 dengan CeleryExecutor, antrean pesan Redis, dan metadata PostgreSQL pada 7 kontainer Docker.
-- **Analisis Trade-Off:** Memerlukan kontainer pendukung tambahan dibandingkan LocalExecutor, namun memberikan pemisahan proses yang kokoh antara penjadwal, peramban web, dan worker eksekusi sehingga mencegah kegagalan sistem terpusat.
+- **Latensi Kueri OLTP 3NF:** Menghilangkan join kompleks 8 tabel relasional melalui pemodelan Star Schema Ralph Kimball (join analitik satu langkah).
+- **Kegagalan Ingestion Senyap:** Menerapkan gerbang Quality Dimensions Check (QDC) in-flight dengan ambang batas fail-fast 5%, mencegah data anomali masuk ke data warehouse produksi.
+- **Pelanggaran Privasi Data Pribadi:** Melindungi data sensitif pelanggan dengan hashing kriptografis SHA-256 sesuai standar GDPR dan UU PDP No. 27 Tahun 2022.
+- **Pemborosan Batch ETL Berulang:** Menerapkan mekanisme muat inkremental berbasis batas air (*watermark*) `MAX(order_date)` dari BigQuery, menghemat transfer data lebih dari 99% pada kondisi stabil.
+- **Ketahanan BigQuery Sandbox:** Mengadopsi penyimpanan non-partitioned untuk menghindari penghapusan otomatis data historis setelah 60 hari pada BigQuery Sandbox.
 
 ---
 
-## 4. Dampak Terukur dan Bukti Pengujian Empiris
+## ✨ Fitur Utama
 
-Setiap klaim keberhasilan pada tabel berikut didukung oleh bukti pengujian empiris yang dapat diverifikasi pada berkas dokumentasi pengujian repositori ini:
-
-| Dimensi Pengujian | Target / Ambang Batas SLA | Hasil Aktual Pengujian | Status Evaluasi |
-| :--- | :--- | :--- | :--- |
-| **Kecepatan Pemrosesan Data** | Kurang dari 15 menit (900 detik) | **39 sampai 57 detik** (Muat Penuh) | Lulus |
-| **Tingkat Kelulusan Kualitas Data** | Lebih dari atau sama dengan 95,0% | **100,0% Lulus** pada data bersih (0 anomali) | Lulus |
-| **Presisi Deteksi Noise Sintetis** | Deteksi anomali 100% tepat | **100,0% presisi** pada 2.252 (2%) dan 9.012 (8%) baris uji | Lulus |
-| **Penerapan Batas Fail-Fast** | Hentikan load jika anomali melebihi 5% | **Terbukti**: Task load diabaikan (`try_number=0`), 0 baris masuk | Lulus |
-| **Kepatuhan Privasi Data PII** | Tidak ada identitas teks terbaca | **0 baris teks terbaca**, 100% hash SHA-256 64 karakter | Lulus |
-| **Akurasi Jadwal Eksekusi** | Deviasi jadwal di bawah 5,0% | **+0,6 detik deviasi rata-rata** (+1,0 detik maks, 0,56% interval) | Lulus |
-| **Keandalan Riwayat Pipeline** | Tingkat kegagalan di bawah 10% | **4,17% tingkat kegagalan riil** dari 48 run (46 berhasil) | Lulus |
+- **Pipeline Modular 5 Task Airflow:** `extract` → `validate_schema` → `transform` → `qdc_validation` → `load`.
+- **Quality Gate In-Flight (QDC):** Menguji 4 dimensi (Completeness, Uniqueness, Consistency, Validity). Mengisolasi data anomali ke `data/processed/rejected/` dan membatalkan pipeline jika rasio anomali melebihi 5%.
+- **Proteksi PII Zero-Trust:** Pseudonimisasi SHA-256 berentropi tinggi pada `customer_unique_id`.
+- **Strategi Muat Hibrida:** Deteksi otomatis antara Full Load (`WRITE_TRUNCATE`) saat gudang data kosong dan Incremental Delta Load (`WRITE_APPEND`) via watermark.
+- **Penyimpanan Terpisah 3 Zona:** Alur pemrosesan data lokal terstruktur (`staging/`, `clean/`, `rejected/`).
+- **Pengujian Mandiri Komprehensif:** Pengecekan integritas DAG, 19 assertion pengujian logika batas (`self_check.py`), unit test batas fail-fast, dan injeksi anomali sintetis.
 
 ---
 
-## 5. Arsitektur Sistem dan Alur Kerja Pipeline
+## 🏗️ Arsitektur Sistem
 
-```
-┌─────────────────────────┐       ┌───────────────────────────────┐       ┌─────────────────────────┐       ┌────────────────────────┐
-│     9 File CSV Olist    │  ───> │   Apache Airflow 3.0.6        │  ───> │  Google BigQuery        │  ───> │  Looker Studio         │
-│     data/raw/           │       │   CeleryExecutor (7 Layanan)  │       │  Dataset: olist_dw      │       │  Dashboard Eksekutif   │
-└─────────────────────────┘       └───────────────────────────────┘       └─────────────────────────┘       └────────────────────────┘
-    99.441 Pesanan                     5 Task Pipeline Modular                 6 Tabel Star Schema                 Kueri Live BigQuery
-    112.650 Item Pesanan               Durasi Eksekusi: ~60 detik              Wilayah: asia-southeast2            Visualisasi Interaktif
-```
+```mermaid
+flowchart LR
+    subgraph S1["1. Data Mentah"]
+        CSV["9 File CSV Olist\n(112.650 baris)"]
+    end
 
-### Rincian 5 Task Pipeline Modular
+    subgraph S2["2. Apache Airflow 3 (CeleryExecutor)"]
+        T1["extract\n(PyArrow + Watermark)"]
+        T2["validate_schema\n(Cek Kontrak Skema)"]
+        T3["transform\n(Star Schema + SHA-256)"]
+        T4{"qdc_validation\n(4 Dimensi Kualitas)"}
+        T5["load\n(Streaming Parquet)"]
+        ERR["Log Karantina\n(rejected/fact_sales_error_log.csv)"]
 
-```
-[ extract ] ──> [ validate_schema ] ──> [ transform ] ──> [ qdc_validation ] ──> [ load ]
+        T1 --> T2 --> T3 --> T4
+        T4 -- "Lolos (anomali <= 5%)" --> T5
+        T4 -. "Fail-Fast (> 5%) / Anomali" .-> ERR
+    end
+
+    subgraph S3["3. Gudang Data"]
+        BQ[("Google BigQuery\nDataset: olist_dw\n(6 Tabel Star Schema)")]
+    end
+
+    subgraph S4["4. Business Intelligence"]
+        BI["Looker Studio\nDashboard Eksekutif\n(Latensi Kueri <1s)"]
+    end
+
+    CSV --> T1
+    T5 --> BQ --> BI
 ```
 
-1. **Extract (`extract`):** Membaca 9 file CSV mentah menggunakan PyArrow serta mengambil watermark `MAX(order_date)` dari BigQuery untuk menentukan mode Full Load atau Incremental.
-2. **Validate Schema (`validate_schema`):** Memverifikasi integritas struktur kolom input pada 9 tabel untuk memastikan kontrak data terpenuhi sejak awal.
-3. **Transform (`transform`):** Menstandarisasi format data, merangkai relasi Star Schema, memfilter transaksi baru berdasarkan watermark, dan menerapkan hashing SHA-256 pada data pelanggan sensitif.
-4. **QDC Validation (`qdc_validation`):** Menguji data transaksi berdasarkan 4 dimensi kualitas:
-   - *Completeness:* Memastikan tidak ada nilai kosong pada kolom kunci dan metrik harga.
-   - *Uniqueness:* Memastikan tidak ada duplikasi kunci komposit (`order_id` + `order_item_id`).
-   - *Consistency:* Memvalidasi integritas referensial antara tabel fakta dan tabel dimensi.
-   - *Validity:* Memastikan batasan logika domain terpenuhi (`price >= 0`, `freight_value >= 0`, rentang tanggal valid).
-   Jika rasio anomali melebihi 5%, sistem memicu penghentian fail-fast dan mencatat data cacat ke `data/processed/fact_sales_error_log.csv`.
-5. **Load (`load`):** Mengunggah data tabel yang telah tervalidasi ke Google BigQuery dengan kebijakan percobaan ulang otomatis (*retry*) sebanyak 3 kali dan jeda 5 menit.
+### Rincian Task Pipeline
+
+| Task | Lingkup Eksekusi |
+| :--- | :--- |
+| `extract` | Membaca 9 file CSV via PyArrow tervektorisasi dan mengueri BigQuery untuk watermark `MAX(order_date)`. |
+| `validate_schema` | Memvalidasi keberadaan kolom dan kontrak skema; langsung berhenti jika format tidak sesuai. |
+| `transform` | Menstandarisasi tipe data, merangkai Star Schema, memfilter delta transaksi, dan melakukan hashing SHA-256 PII. |
+| `qdc_validation` | Menguji 4 dimensi kualitas; mengarantina data anomali dan menghentikan pipeline jika error > 5%. |
+| `load` | Mengunggah tabel Parquet bersih ke Google BigQuery dengan mekanisme retry berjeda eksponensial. |
 
 ---
 
-## 6. Pemodelan Data: Star Schema
+## 📊 Pemodelan Data
+
+Gudang data mengadopsi Star Schema Ralph Kimball yang terdiri dari 1 tabel fakta transaksi dan 5 tabel dimensi:
 
 ```mermaid
 erDiagram
@@ -144,33 +140,28 @@ erDiagram
         FLOAT price
         FLOAT freight_value
     }
-
     dim_customers {
         STRING customer_id PK
         STRING customer_unique_id
         STRING customer_city
         STRING customer_state
     }
-
     dim_products {
         STRING product_id PK
         STRING product_category_name
         STRING product_category_name_english
     }
-
     dim_sellers {
         STRING seller_id PK
         STRING seller_city
         STRING seller_state
     }
-
     dim_orders {
         STRING order_id PK
         STRING customer_id FK
         STRING order_status
         DATETIME order_purchase_timestamp
     }
-
     dim_date {
         INT date_key PK
         DATE date
@@ -183,173 +174,164 @@ erDiagram
     }
 ```
 
-### Spesifikasi Tabel dan Granularitas
-
-| Nama Tabel | Peran | Jumlah Baris | Kunci Utama / Komposit | Deskripsi Granularitas Data |
+| Nama Tabel | Peran | Baris | Kunci Utama / Komposit | Deskripsi Granularitas Data |
 | :--- | :--- | :---: | :--- | :--- |
-| `fact_sales` | Fakta | 112.650 | `order_id` + `order_item_id` | Setiap item produk dalam pesanan pelanggan yang telah selesai |
-| `dim_customers` | Dimensi | 99.441 | `customer_id` | Wilayah geografis dan identitas pelanggan yang telah di-hash |
-| `dim_products` | Dimensi | 32.951 | `product_id` | Katalog kategori produk dalam bahasa Portugis dan Inggris |
-| `dim_sellers` | Dimensi | 3.095 | `seller_id` | Wilayah domisili penjual (kota, negara bagian) |
+| `fact_sales` | Fakta | 112.650 | `order_id` + `order_item_id` | Setiap item produk dalam pesanan pelanggan |
+| `dim_customers` | Dimensi | 99.441 | `customer_id` | Wilayah geografis dan identitas pelanggan ter-hash |
+| `dim_products` | Dimensi | 32.951 | `product_id` | Katalog kategori produk (bahasa Portugis dan Inggris) |
+| `dim_sellers` | Dimensi | 3.095 | `seller_id` | Wilayah geografis penjual (kota, negara bagian) |
 | `dim_orders` | Dimensi | 99.441 | `order_id` | Status siklus pesanan dan stempel waktu pembelian |
 | `dim_date` | Dimensi | 634 | `date_key` (YYYYMMDD) | Atribut kalender, kuartal, hari dalam minggu, penanda akhir pekan |
 
 ---
 
-## 7. Bukti Pengujian Injeksi Anomali dan Fail-Fast
+## ⚡ Metrik dan Benchmark Terverifikasi
 
-Pengujian injeksi noise sintetis dilakukan untuk menguji keandalan gerbang kualitas:
+Seluruh metrik berikut bersumber dari log pengujian empiris nyata yang didokumentasikan di [`docs/bab4_hasil_pengujian.md`](docs/bab4_hasil_pengujian.md) dan [`docs/metrik_performa.md`](docs/metrik_performa.md):
 
-| Skenario Pengujian | Jumlah Noise | Terdeteksi | Presisi Deteksi | Berkas Catatan Error | Status Fail-Fast | Pemuatan ke BigQuery |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Data Bersih** | 0 baris | 0 baris | 100,0% | 0 baris | Tidak aktif | 112.650 baris termuat |
-| **Injeksi Noise 2%** | 2.252 baris | 2.252 baris | 100,0% | 2.252 baris tersimpan | Tidak aktif (<5%) | 110.398 baris termuat |
-| **Injeksi Noise 8%** | 9.012 baris | 9.012 baris | 100,0% | 9.012 baris tersimpan | **Aktif** (`ValueError`) | **Dibatalkan (0 baris termuat)** |
-
-Pada pengujian 8%, task `load` mencatat `try_number=0` (tidak pernah dieksekusi), membuktikan bahwa gerbang fail-fast berhasil melindungi data warehouse dari data kotor.
-
----
-
-## 8. Panduan Replikasi dan Pengujian Lokal
-
-### Prasyarat Sistem
-- Docker Engine 24+ dan Docker Compose v2+ (didukung penuh di Windows via WSL2).
-- Akun Google Cloud Platform dengan hak akses BigQuery Admin atau Data Editor.
-- 9 berkas CSV Olist ditempatkan pada direktori `data/raw/`.
-
-### Langkah Eksekusi
-
-1. **Clone repositori:**
-   ```bash
-   git clone https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery.git
-   cd ecommerce-etl-airflow-bigquery
-   ```
-
-2. **Konfigurasi variabel lingkungan:**
-   ```bash
-   cp .env.example .env
-   ```
-   Sesuaikan nilai `GCP_PROJECT_ID`, `BIGQUERY_DATASET`, dan path direktori di dalam `.env`.
-
-3. **Pasang kunci kredensial GCP:**
-   Tempatkan berkas kunci JSON Service Account Google Cloud pada:
-   ```
-   config/keys/gcp-sa-key.json
-   ```
-
-4. **Jalankan layanan Airflow:**
-   ```bash
-   docker compose up -d
-   ```
-
-5. **Picu eksekusi pipeline:**
-   ```bash
-   docker compose exec airflow-scheduler airflow dags trigger olist_etl_pipeline
-   ```
-
-6. **Akses antarmuka web Airflow:**
-   Buka alamat `http://localhost:8080` pada peramban (Kredensial bawaan: `airflow` / `airflow`).
+| Dimensi Pengujian | Target / Ambang SLA | Hasil Aktual Pengujian | Status |
+| :--- | :--- | :--- | :---: |
+| **Durasi Pipeline (Muat Penuh)** | < 15 menit (900 detik) | **39 sampai 57 detik** | Lulus |
+| **Kelulusan Gerbang Data Bersih** | >= 95,0% lulus | **100,0% lulus** (112.650 baris bersih, 0 anomali lolos) | Lulus |
+| **Presisi Deteksi Noise Sintetis** | 100% presisi deteksi | **100,0% presisi** (terdeteksi seluruh 2.252 baris pada uji 2% dan 9.012 baris pada uji 8%) | Lulus |
+| **Penerapan Batas Fail-Fast** | Hentikan jika noise > 5% | **Terbukti**: Task `load` diabaikan (`try_number=0`), 0 baris kotor termuat | Lulus |
+| **Overhead Komputasi QDC** | Dampak minimal | **+4,55 detik (+7,9%)** penambahan durasi komputasi | Lulus |
+| **Anonimisasi Data PII** | Nol kebocoran teks terbaca | **0 data pelanggan terbuka**, 100% hash SHA-256 64 karakter | Lulus |
+| **Latensi Kueri Looker Studio** | Interaktif (<3 detik) | **< 1 detik respons kueri** pada Star Schema BigQuery | Lulus |
+| **Stabilitas Jadwal Cron** | Deviasi < 5,0% | **+0,6 detik deviasi rata-rata** (+1,0s maks, 0,56% interval) | Lulus |
 
 ---
 
-## 9. Suite Pengujian Otomatis Mandiri
+## 🛠️ Tech Stack
 
-Repositori ini dilengkapi suite pengujian berbasis `Makefile` tanpa ketergantungan framework pengujian eksternal:
+| Lapisan | Teknologi | Versi | Peran dan Tanggung Jawab |
+| :--- | :--- | :--- | :--- |
+| **Orkestrasi** | Apache Airflow | 3.0.6 | Penjadwalan alur kerja terdistribusi dan monitoring (CeleryExecutor) |
+| **Data Warehouse** | Google Cloud BigQuery | Cloud-Native | Gudang data analitik kolumnar (dataset: `olist_dw`, lokasi: `asia-southeast2`) |
+| **Mesin Pemrosesan** | Python / PyArrow / Pandas | 3.12 / Tervektorisasi | Pemrosesan ETL in-memory, validasi skema, dan join Star Schema |
+| **Broker Pesan** | Redis | 7.2 Alpine | Antrean pesan tugas untuk worker terdistribusi Airflow Celery |
+| **Penyimpanan Metadata** | PostgreSQL | 16 Alpine | Penyimpanan metadata operasional dan status task Airflow |
+| **Kontainerisasi** | Docker Compose | v2+ | 7 layanan mikro terisolasi pada lingkungan lokal / WSL2 |
+| **Business Intelligence** | Google Looker Studio | Cloud-Native | Dashboard analitik visual eksekutif interaktif |
+| **CI / Otomasi** | GitHub Actions | Ubuntu Latest | Linting otomatis, uji integritas DAG, dan suite pengujian unit |
 
-```bash
-make verify
+---
+
+## 📂 Struktur Repositori
+
+```text
+ecommerce-etl-airflow-bigquery/
+├── .github/workflows/ci.yml       # CI: Linting, validasi DAG, 19 assertion unit test
+├── config/keys/                  # Kredensial GCP Service Account (gcp-sa-key.json diabaikan git)
+├── dags/
+│   ├── olist_etl_pipeline.py     # DAG utama 5 task dengan integrasi QDC gate
+│   └── olist_etl_baseline_noqdc.py # DAG baseline pembanding tanpa gerbang kualitas
+├── data/
+│   ├── processed/                # Area pemrosesan data lokal
+│   │   ├── clean/                # Berkas Parquet tervalidasi siap muat ke BigQuery
+│   │   ├── rejected/             # Berkas karantina anomali (fact_sales_error_log.csv)
+│   │   └── staging/              # Pementasan ekstraksi dan tabel Star Schema
+│   └── raw/                      # 9 berkas CSV mentah Olist (diabaikan git)
+├── docs/                         # Dokumentasi riset skripsi dan laporan benchmark lengkap
+├── src/
+│   ├── scripts/
+│   │   └── noise_injection.py    # Skrip injeksi anomali sintetis untuk pengujian fail-fast
+│   └── utils/
+│       ├── io_helpers.py         # Utilitas I/O tervektorisasi dengan perutean subdirektori
+│       ├── pii.py                # Enkripsi hashing SHA-256 pelindungan data pribadi
+│       ├── qdc.py                # Mesin validasi Quality Dimensions Check 4 dimensi
+│       └── self_check.py         # Suite pengujian unit 19 assertion logika sistem
+├── tests/
+│   └── test_qdc_boundary.py      # Pengujian unit kondisi batas fail-fast QDC
+├── docker-compose.yml            # 7 layanan mikro Airflow (Webserver, Scheduler, Worker, Redis, Postgres)
+├── Dockerfile                    # Image Apache Airflow 3.0.6 kustom dengan dependensi GCP
+├── Makefile                      # Perintah CLI standar untuk cek, eksekusi, dan verifikasi
+├── requirements.txt              # Pustaka dependensi Python
+└── .env.example                  # Template konfigurasi variabel lingkungan
 ```
 
-| Target Makefile | Cakupan Pengujian dan Validasi |
+---
+
+## 🚀 Mulai Cepat
+
+### Prasyarat
+- Docker Engine 24+ dan Docker Compose v2+ (didukung penuh via WSL2 di Windows).
+- Akun Google Cloud Platform dengan hak akses BigQuery Admin atau Data Editor.
+- 9 berkas CSV mentah Olist ditempatkan pada direktori `data/raw/`.
+
+### 1. Konfigurasi Lingkungan dan Kredensial
+```bash
+cp .env.example .env
+# Sesuaikan GCP_PROJECT_ID, BIGQUERY_DATASET, dan BIGQUERY_LOCATION di .env
+
+# Tempatkan berkas kredensial Service Account JSON GCP:
+cp /path/ke/kunci-gcp.json config/keys/gcp-sa-key.json
+```
+
+### 2. Jalankan Layanan Kontainer Airflow
+```bash
+docker compose up -d
+```
+*Akses antarmuka web Airflow di `http://localhost:8080` (Kredensial bawaan: `airflow` / `airflow`).*
+
+### 3. Picu Eksekusi Pipeline
+```bash
+docker compose exec airflow-scheduler airflow dags trigger olist_etl_pipeline
+# Atau gunakan Makefile:
+make run
+```
+
+---
+
+## 🧪 Pengujian dan Verifikasi
+
+Jalankan seluruh pengujian otomatis lokal via `Makefile` tanpa ketergantungan framework pengujian eksternal:
+
+```bash
+make verify    # Menjalankan dag-check, self-check, dan verifikasi jumlah baris BigQuery
+```
+
+| Perintah | Cakupan Verifikasi |
 | :--- | :--- |
-| `make dag-check` | Memverifikasi sintaks Python, registrasi 5 task DAG, dan integritas dependency pip |
-| `make self-check` | Menjalankan 19 unit test berbasis assert untuk logika QDC, batas fail-fast, dan hash SHA-256 |
-| `make bq-verify` | Mengueri BigQuery langsung untuk memastikan jumlah baris 6 tabel Star Schema terisi sesuai |
-| `make run` | Memicu eksekusi idempoten dari DAG utama `olist_etl_pipeline` |
-| `make run-baseline` | Memicu DAG baseline tanpa QDC untuk mengukur perbandingan durasi eksekusi |
+| `make check` | Menjalankan target `dag-check` dan `self-check`. |
+| `make dag-check` | Memvalidasi sintaks Python, registrasi 5 task DAG, dan pohon dependensi pip. |
+| `make self-check` | Menjalankan 19 unit test assert untuk logika QDC, batas fail-fast, dan hash SHA-256. |
+| `make bq-verify` | Mengueri BigQuery langsung untuk memastikan jumlah baris 6 tabel Star Schema sesuai. |
+| `make run-baseline` | Memicu DAG baseline tanpa QDC untuk mengukur perbandingan durasi eksekusi. |
 
-### Kueri Verifikasi BigQuery
-
-Jalankan kueri SQL berikut pada BigQuery Console untuk memastikan seluruh data transaksi tersimpan:
-
+### Kueri Verifikasi BigQuery Langsung
 ```sql
 SELECT 
     COUNT(*) AS total_sales_records,
     COUNT(DISTINCT order_id) AS total_orders,
     ROUND(SUM(price), 2) AS total_gross_revenue_brl
 FROM `your-gcp-project.olist_dw.fact_sales`;
--- Target Hasil: 112.650 baris | 98.666 pesanan unik | R$ 13.591.248,91 gross revenue
+-- Target Hasil: 112.650 baris | 98.666 pesanan unik | R$ 13.591.643,70 gross revenue
 ```
 
 ---
 
-## 10. Struktur Repositori dan Riwayat Perubahan
+## ⚙️ Konfigurasi
 
-```text
-ecommerce-etl-airflow-bigquery/
-├── .github/
-│   └── workflows/
-│       └── ci.yml                # Pipeline CI: linting Python, DAG check, unit test
-├── .dockerignore                 # Pengecualian secrets dan dataset dari build context
-├── .env.example                  # Template konfigurasi environment variables dan GCP
-├── .gitignore                    # Aturan isolasi rahasia, dataset lokal, dan dokumen privat
-├── Dockerfile                    # Image Apache Airflow 3.0.6 kustom dengan dependensi GCP
-├── Makefile                      # Otomatisasi pengujian dan verifikasi mandiri (make verify)
-├── README.md                     # Dokumentasi utama portofolio internasional (English)
-├── README.id.md                  # Dokumentasi lengkap versi Bahasa Indonesia
-├── docker-compose.yml            # 7 layanan mikro Airflow (CeleryExecutor, Redis, PostgreSQL)
-├── requirements.txt              # Pustaka Python (pandas, pyarrow, google-cloud-bigquery)
-├── config/
-│   └── keys/
-│       └── .gitkeep              # Titik pasang kredensial GCP (gcp-sa-key.json diabaikan git)
-├── dags/
-│   ├── olist_etl_pipeline.py     # DAG utama 5 task dengan integrasi QDC gate
-│   └── olist_etl_baseline_noqdc.py # DAG baseline tanpa gerbang kualitas
-├── data/
-│   ├── processed/
-│   │   └── .gitkeep              # Area staging berkas Parquet (diabaikan git)
-│   └── raw/
-│       └── .gitkeep              # Direktori target 9 dataset CSV Olist (diabaikan git)
-├── plugins/
-│   └── .gitkeep                  # Direktori ekstensi kustom Airflow (diabaikan git)
-└── src/
-    ├── scripts/
-    │   ├── __init__.py
-    │   └── noise_injection.py    # Injektor anomali sintetis untuk pengujian fail-fast
-    └── utils/
-        ├── __init__.py
-        ├── io_helpers.py         # Utilitas I/O tervektorisasi dan pembacaan Parquet
-        ├── pii.py                # Enkripsi hashing SHA-256 pelindungan data pribadi
-        ├── qdc.py                # Mesin validasi Quality Dimensions Check 4 dimensi
-        └── self_check.py         # 19 assertion pengujian unit logika batas sistem
-```
+Variabel lingkungan utama yang didefinisikan pada `.env.example`:
 
-Proyek ini menerapkan standar [Conventional Commits](https://www.conventionalcommits.org/):
-- `feat`: Penambahan fitur pipeline, tahapan transformasi, atau aturan kualitas baru.
-- `fix`: Perbaikan bug seperti scoping registrasi DAG, koersi tipe data, atau kardinalitas relasi.
-- `refactor`: Restrukturisasi arsitektur kode tanpa mengubah hasil fungsionalitas.
-- `docs`: Pembaruan dokumentasi teknis, catatan performa, dan studi kasus README.
-- `ci`: Pembaruan workflow GitHub Actions atau konfigurasi build kontainer.
-- `chore`: Pemeliharaan file gitignore, perapian dependensi, atau penyesuaian skrip pembantu.
+| Variabel | Nilai Bawaan | Keterangan |
+| :--- | :--- | :--- |
+| `AIRFLOW_UID` | `50000` | POSIX UID untuk proses kontainer Airflow. |
+| `_AIRFLOW_WWW_USER_USERNAME` | `airflow` | Nama pengguna bawaan untuk Web UI Airflow. |
+| `_AIRFLOW_WWW_USER_PASSWORD` | `airflow` | Kata sandi bawaan untuk Web UI Airflow. |
+| `GCP_PROJECT_ID` | `your-gcp-project-id` | ID Proyek Google Cloud tempat BigQuery berada. |
+| `BIGQUERY_DATASET` | `olist_dw` | Nama dataset target untuk tabel Star Schema. |
+| `BIGQUERY_LOCATION` | `asia-southeast2` | Wilayah komputasi geografis BigQuery (Jakarta). |
 
 ---
 
-## 11. Batasan Sistem dan Peta Jalan Lanjutan
+## 📜 Lisensi dan Konteks Akademik
 
-1. **Batasan Partisi Sandbox BigQuery:** Pada lingkungan sandbox saat ini, partisi dinonaktifkan untuk mencegah penghapusan otomatis data historis (2016 sampai 2018) setelah 60 hari. Pada implementasi penagihan aktif, tabel disarankan dimigrasikan ke partisi harian waktu pencatatan (`PARTITION BY order_date`) dipadukan dengan pengelompokan (*clustering*) pada `customer_state` dan `product_id`.
-2. **Penskalaan Worker Horizontal:** Saat ini CeleryExecutor berjalan pada host tunggal kontainer. Penskalaan skala besar dapat dicapai dengan memindahkan worker ke Kubernetes menggunakan KubernetesExecutor atau CeleryKubernetesExecutor.
-3. **Penerapan Kontrak Data Hulu:** Peningkatan lanjutan dapat mengintegrasikan spesifikasi kontrak skema menggunakan dbt contract enforcement atau Great Expectations untuk mendeteksi perubahan format sumber secara otomatis.
-
----
-
-## 12. Konteks Penelitian Akademik
-
-Proyek rekayasa ini awalnya dikembangkan dan divalidasi sebagai implementasi teknis untuk penelitian skripsi:
-- **Judul Proyek:** Implementasi Pipeline ETL dan Dashboard Analitik Data Transaksi E-Commerce menggunakan Apache Airflow dan Google BigQuery
-- **Institusi:** Politeknik Negeri Samarinda, 2026
-- **Spesialisasi:** Data Engineering & Analytics Engineering
-
----
+- **Konteks Akademik:** Dikembangkan dan divalidasi sebagai implementasi teknis untuk penelitian skripsi di **Politeknik Negeri Samarinda (2026)**.
+- **Atribusi Dataset:** Brazilian E-Commerce Public Dataset oleh [Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) di Kaggle.
+- **Dokumentasi Lengkap:** Analisis mendalam trade-off arsitektur, laporan pengujian bab 4, dan evaluasi teknis tersedia di folder [`docs/`](docs/).
+- **Lisensi:** Berlisensi sumber terbuka di bawah [MIT License](LICENSE).
 
 <div align="center">
   <sub>Dibangun dengan dedikasi tinggi pada kode bersih, dampak teknis terverifikasi, dan standar keandalan data enterprise.</sub>
