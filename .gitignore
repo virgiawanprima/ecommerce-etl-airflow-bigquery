@@ -20,15 +20,6 @@ data/raw/*.csv
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
-!data/processed/staging/
-data/processed/staging/*
-!data/processed/staging/.gitkeep
-!data/processed/clean/
-data/processed/clean/*
-!data/processed/clean/.gitkeep
-!data/processed/rejected/
-data/processed/rejected/*
-!data/processed/rejected/.gitkeep
 data/_noise_backup/
 
 # ==============================================================================
