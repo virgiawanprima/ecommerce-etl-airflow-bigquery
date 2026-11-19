@@ -41,6 +41,7 @@
 - [🛠️ Tech Stack](#tech-stack)
 - [📂 Struktur Repositori](#struktur-repositori)
 - [🚀 Mulai Cepat](#mulai-cepat)
+- [Demo presentasi](#demo-presentasi)
 - [🧪 Pengujian dan Verifikasi](#pengujian-dan-verifikasi)
 - [⚙️ Konfigurasi](#konfigurasi)
 - [📜 Lisensi dan Konteks Akademik](#lisensi-dan-konteks-akademik)
@@ -68,7 +69,7 @@ Proyek ini merekayasa pipeline data ELT terotomatisasi berstandar industri untuk
 - **Proteksi PII Zero-Trust:** Pseudonimisasi SHA-256 berentropi tinggi pada `customer_unique_id`.
 - **Strategi Muat Hibrida:** Deteksi otomatis antara Full Load (`WRITE_TRUNCATE`) saat gudang data kosong dan Incremental Delta Load (`WRITE_APPEND`) via watermark.
 - **Penyimpanan Terpisah 3 Zona:** Alur pemrosesan data lokal terstruktur (`staging/`, `clean/`, `rejected/`).
-- **Pengujian Mandiri Komprehensif:** Pengecekan integritas DAG, 19 assertion pengujian logika batas (`self_check.py`), unit test batas fail-fast, dan injeksi anomali sintetis.
+- **Demo dan tes terisolasi:** Tiga DAG manual menguji data bersih serta skenario di bawah dan di atas ambang QDC tanpa menulis ke dataset dashboard. CI menguji ketiganya dengan data sintetis.
 
 ---
 
@@ -221,11 +222,12 @@ Seluruh metrik berikut bersumber dari log pengujian empiris nyata yang didokumen
 
 ```text
 ecommerce-etl-airflow-bigquery/
-├── .github/workflows/ci.yml       # CI: Linting, validasi DAG, 19 assertion unit test
+├── .github/workflows/ci.yml       # CI: validasi Compose, build image, lint, dan seluruh tes
 ├── config/keys/                  # Kredensial GCP Service Account (gcp-sa-key.json diabaikan git)
 ├── dags/
 │   ├── olist_etl_pipeline.py     # DAG utama 5 task dengan integrasi QDC gate
-│   └── olist_etl_baseline_noqdc.py # DAG baseline pembanding tanpa gerbang kualitas
+│   ├── olist_etl_baseline_noqdc.py # DAG baseline pembanding tanpa gerbang kualitas
+│   └── olist_presentation_demos.py # Tiga DAG presentasi terisolasi
 ├── data/
 │   ├── processed/                # Area pemrosesan data lokal
 │   │   ├── clean/                # Berkas Parquet tervalidasi siap muat ke BigQuery
@@ -242,6 +244,8 @@ ecommerce-etl-airflow-bigquery/
 │       ├── qdc.py                # Mesin validasi Quality Dimensions Check 4 dimensi
 │       └── self_check.py         # Suite pengujian unit 19 assertion logika sistem
 ├── tests/
+│   ├── test_airflow_dags.py       # Impor dan dependensi task pada lima DAG
+│   ├── test_presentation_demos.py # Hasil demo dan isolasi dataset
 │   └── test_qdc_boundary.py      # Pengujian unit kondisi batas fail-fast QDC
 ├── docker-compose.yml            # 7 layanan mikro Airflow (Webserver, Scheduler, Worker, Redis, Postgres)
 ├── Dockerfile                    # Image Apache Airflow 3.0.6 kustom dengan dependensi GCP
@@ -275,6 +279,8 @@ docker compose up -d
 *Akses antarmuka web Airflow di `http://localhost:8080` (Kredensial bawaan: `airflow` / `airflow`).*
 
 ### 3. Picu Eksekusi Pipeline
+Untuk presentasi, gunakan [demo terisolasi](#demo-presentasi). Perintah di bawah memicu DAG utama yang menulis ke dataset sesuai `BIGQUERY_DATASET`.
+
 ```bash
 docker compose exec airflow-scheduler airflow dags trigger olist_etl_pipeline
 # Atau gunakan Makefile:
@@ -283,9 +289,29 @@ make run
 
 ---
 
+## Demo presentasi
+
+Jalankan stack Compose dari direktori repositori. Menyalakan Docker saja belum menjalankan Airflow. Di Windows, jika Docker tersedia melalui Ubuntu WSL, jalankan perintah Compose yang sama dari Ubuntu. Buka [Airflow](http://127.0.0.1:8080), filter tag `demo`, lalu klik **Trigger DAG**. Tidak perlu mengisi parameter atau menyuntikkan noise secara manual.
+
+| DAG | Hasil yang diharapkan |
+| :--- | :--- |
+| `demo_pipeline` | Semua task sukses. Memuat 112.650 baris fakta ke `olist_demo_pipeline`. |
+| `demo_noise-2` | QDC menolak 2.252 baris dan memuat 110.398 baris valid ke `olist_demo_noise_2`. |
+| `demo_noise-8` | QDC menolak 9.012 baris, melebihi ambang 5%. Run memang gagal: `load` berstatus `upstream_failed` dan dataset tidak dibuat. |
+
+Angka tersebut berasal dari gladi dengan data Olist lengkap. Setiap run memakai direktori staging sendiri. Injeksi noise hanya mengubah salinan, dan DAG demo tidak menulis ke `olist_dw`. Dua skenario yang memuat data membutuhkan internet dan kredensial BigQuery yang dapat membuat serta menulis ke dataset demo.
+
+Untuk menjelaskan hasil, buka **Graph** dan log `qdc_validation`. Jika koneksi bermasalah, buka riwayat gladi pada Airflow lokal jika masih tersedia. Semua DAG saat ini bersifat manual (`schedule=None`) dan belum mendukung backfill historis. DAG utama memakai watermark gudang data, sedangkan demo membaca snapshot penuh, bukan interval data Airflow.
+
+---
+
 ## 🧪 Pengujian dan Verifikasi
 
-Jalankan seluruh pengujian otomatis lokal via `Makefile` tanpa ketergantungan framework pengujian eksternal:
+[GitHub Actions](https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery/actions/workflows/ci.yml) memvalidasi Compose, membangun image Airflow, memeriksa dependensi dan lint, lalu menjalankan `self_check.py` dan seluruh suite `pytest`. [Run CI yang diverifikasi](https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery/actions/runs/44485935390) meluluskan 19 tes, 6 subtes, dan 19 pemeriksaan mandiri.
+
+CI memeriksa kelima DAG serta menjalankan ketiga demo dengan data sintetis dan tiruan klien BigQuery di kontainer tanpa jaringan. CI tidak menguji login browser, stack Celery aktif, atau akses BigQuery asli. Untuk memeriksanya, lakukan gladi di mesin presentasi.
+
+Untuk pemeriksaan operasional lokal pada stack aktif dan dataset BigQuery yang dikonfigurasi:
 
 ```bash
 make verify    # Menjalankan dag-check, self-check, dan verifikasi jumlah baris BigQuery

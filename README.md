@@ -41,6 +41,7 @@
 - [🛠️ Tech Stack](#tech-stack)
 - [📂 Project Structure](#project-structure)
 - [🚀 Quickstart](#quickstart)
+- [Presentation demos](#presentation-demos)
 - [🧪 Verification & Testing](#verification--testing)
 - [⚙️ Configuration](#configuration)
 - [📜 License & Academic Context](#license--academic-context)
@@ -68,7 +69,7 @@ This project engineers an enterprise-grade, automated ELT data pipeline for the 
 - **Zero-Trust PII Protection:** High-entropy SHA-256 pseudonymization on `customer_unique_id`.
 - **Hybrid Load Strategy:** Automatic detection between Full Load (`WRITE_TRUNCATE`) on an empty warehouse and Incremental Delta Load (`WRITE_APPEND`) via high-watermark querying.
 - **Decoupled 3-Tier Storage:** Structured local processing pipeline (`staging/`, `clean/`, `rejected/`).
-- **Comprehensive Self-Contained Testing:** Automated DAG integrity checks, 19-assertion unit verification (`self_check.py`), boundary condition tests, and synthetic noise injection scripts.
+- **Isolated demos and tests:** Three manual demo DAGs exercise clean data and both sides of the QDC threshold without writing to the dashboard dataset. CI tests these scenarios with synthetic data.
 
 ---
 
@@ -221,11 +222,12 @@ All metrics below are derived from empirical test runs documented in [`docs/bab4
 
 ```text
 ecommerce-etl-airflow-bigquery/
-├── .github/workflows/ci.yml       # CI: Linting, DAG check, 19 unit assertions
+├── .github/workflows/ci.yml       # CI: Compose validation, image build, lint, and full test suite
 ├── config/keys/                  # GCP service account credentials (gcp-sa-key.json gitignored)
 ├── dags/
 │   ├── olist_etl_pipeline.py     # Production 5-task ELT DAG with integrated QDC gate
-│   └── olist_etl_baseline_noqdc.py # Benchmark baseline DAG without quality gate
+│   ├── olist_etl_baseline_noqdc.py # Benchmark baseline DAG without quality gate
+│   └── olist_presentation_demos.py # Three isolated presentation DAGs
 ├── data/
 │   ├── processed/                # Local runtime data processing
 │   │   ├── clean/                # Validated Parquet files ready for BigQuery
@@ -242,6 +244,8 @@ ecommerce-etl-airflow-bigquery/
 │       ├── qdc.py                # 4-dimensional Quality Dimensions Check engine
 │       └── self_check.py         # 19-assertion unit verification suite
 ├── tests/
+│   ├── test_airflow_dags.py       # Imports and task dependencies for all five DAGs
+│   ├── test_presentation_demos.py # Demo behavior and dataset isolation
 │   └── test_qdc_boundary.py      # Unit tests for QDC fail-fast boundary logic
 ├── docker-compose.yml            # 7 Airflow services (Webserver, Scheduler, Worker, Redis, Postgres)
 ├── Dockerfile                    # Custom Airflow 3.0.6 image with GCP dependencies
@@ -275,6 +279,8 @@ docker compose up -d
 *Access Airflow Web UI at `http://localhost:8080` (Credentials: `airflow` / `airflow`).*
 
 ### 3. Run Pipeline
+For a presentation, use the [isolated demos](#presentation-demos). The command below triggers the main DAG, which writes to the dataset configured by `BIGQUERY_DATASET`.
+
 ```bash
 docker compose exec airflow-scheduler airflow dags trigger olist_etl_pipeline
 # Or simply:
@@ -283,9 +289,29 @@ make run
 
 ---
 
+## Presentation demos
+
+Start the Compose stack from the repository root, not just Docker. On Windows with Docker available inside Ubuntu WSL, run the same Compose command inside Ubuntu. Open [Airflow](http://127.0.0.1:8080), filter by the `demo` tag, and click **Trigger DAG**. No run parameters or manual noise injection are needed.
+
+| DAG | Expected result |
+| :--- | :--- |
+| `demo_pipeline` | All tasks succeed. Loads 112,650 fact rows into `olist_demo_pipeline`. |
+| `demo_noise-2` | QDC rejects 2,252 rows and loads 110,398 valid rows into `olist_demo_noise_2`. |
+| `demo_noise-8` | QDC rejects 9,012 rows, above the 5% threshold. The run is expected to fail: `load` is `upstream_failed` and no dataset is created. |
+
+These counts come from the rehearsal with the full Olist input. Each run uses its own staging directory. Noise affects only a copy, and the demo DAGs do not write to `olist_dw`. The two successful load scenarios require internet access and BigQuery credentials that can create and write to the demo datasets.
+
+To explain the outcome, open **Graph** and the `qdc_validation` log. If the connection is unavailable, open a previous successful rehearsal stored in the local Airflow instance, if available. All current DAGs are manual (`schedule=None`) and do not support historical backfill. The main DAG uses a warehouse watermark, while the demos read a full snapshot rather than an Airflow data interval.
+
+---
+
 ## 🧪 Verification & Testing
 
-Run all automated checks locally via `Makefile` without external test dependencies:
+[GitHub Actions](https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery/actions/workflows/ci.yml) validates Compose, builds the Airflow image, checks dependencies and lint, and runs `self_check.py` and the full `pytest` suite. The [verified CI run](https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery/actions/runs/44485935390) passed 19 tests, 6 subtests, and 19 self-checks.
+
+CI checks all five DAGs and runs the three demos with synthetic input and a mocked BigQuery client in a network-disabled container. It does not test browser login, the live Celery stack, or BigQuery access. Rehearse on the presentation machine for those checks.
+
+For local operational checks against the running stack and the configured BigQuery dataset:
 
 ```bash
 make verify    # Runs dag-check, self-check, and live BigQuery row count verification
