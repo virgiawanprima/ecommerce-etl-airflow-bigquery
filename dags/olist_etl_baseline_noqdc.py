@@ -43,6 +43,10 @@ STAGING_DATA_DIR = os.path.join(PROCESSED_DATA_DIR, "staging")
 GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "gen-lang-client-0814065913")
 BIGQUERY_DATASET = os.environ.get("BIGQUERY_DATASET", "olist_dw")
 BIGQUERY_LOCATION = os.environ.get("BIGQUERY_LOCATION", "asia-southeast2")
+BASELINE_QDC_WARNING = (
+    "Peringatan: QDC tidak dijalankan pada baseline; "
+    "jumlah baris bermasalah tidak diketahui."
+)
 
 CSV_FILES = {
     "orders": "olist_orders_dataset.csv",
@@ -77,6 +81,7 @@ def olist_etl_baseline_noqdc():
     @task
     def extract() -> dict[str, str]:
         """Sama persis dengan DAG utama."""
+        logger.warning(BASELINE_QDC_WARNING)
         from google.cloud import bigquery
 
         os.makedirs(STAGING_DATA_DIR, exist_ok=True)
@@ -219,6 +224,7 @@ def olist_etl_baseline_noqdc():
     @task
     def load(paths: dict[str, str]) -> None:
         """Sama persis dengan DAG utama; menulis data TANPA cleaning QDC."""
+        logger.warning(BASELINE_QDC_WARNING)
         from google.cloud import bigquery
 
         is_incremental = paths.pop("_is_incremental", "") == "1"

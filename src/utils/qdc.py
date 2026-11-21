@@ -199,4 +199,19 @@ def run_qdc(
     )
     logger.info(result.summary())
 
+    rejected_rate = (
+        f"{result.failed_records / result.total_records:.2%}".replace(".", ",")
+        if result.total_records
+        else "tidak ada data"
+    )
+    logger.log(
+        logging.WARNING if result.failed_records else logging.INFO,
+        "%s: %s baris ditolak pada tabel %s (total %s baris, %s).",
+        "Peringatan" if result.failed_records else "QDC",
+        f"{result.failed_records:,}".replace(",", "."),
+        result.table_name,
+        f"{result.total_records:,}".replace(",", "."),
+        rejected_rate,
+    )
+
     return passed_df, failed_df, result

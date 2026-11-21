@@ -1,4 +1,5 @@
 import csv
+import logging
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -66,6 +67,7 @@ def task_callables(dag_id: str) -> list[Callable[..., object]]:
 )
 def test_demo_task_chain(
     demo_environment: tuple[Path, Path, Mock], monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
     dag_id: str, dataset_id: str, rejected: int, written: int,
 ) -> None:
     raw, root, factory = demo_environment
@@ -79,6 +81,7 @@ def test_demo_task_chain(
     context["run_id"] = "manual__ci_second"
     assert demos._workspace() != workspace
     context["run_id"] = "manual__ci_first"
+    caplog.set_level(logging.INFO, logger="src.utils.qdc")
 
     if written:
         load(qdc(str(workspace)))
@@ -86,6 +89,15 @@ def test_demo_task_chain(
         with pytest.raises(ValueError, match=r"QDC fail-fast.*load diblokir"):
             load(qdc(str(workspace)))
         factory.assert_not_called()
+
+    level = logging.WARNING if rejected else logging.INFO
+    prefix = "Peringatan" if rejected else "QDC"
+    rate = f"{rejected / 200:.2%}".replace(".", ",")
+    message = (
+        f"{prefix}: {rejected} baris ditolak pada tabel fact_sales "
+        f"(total 200 baris, {rate})."
+    )
+    assert ("src.utils.qdc", level, message) in caplog.record_tuples
 
     assert {path: path.read_bytes() for path in raw.glob("*.csv")} == original
     rejected_csv = workspace / "rejected" / "fact_sales_error_log.csv"
