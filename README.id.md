@@ -69,7 +69,7 @@ Proyek ini merekayasa pipeline data ELT terotomatisasi berstandar industri untuk
 - **Proteksi PII Zero-Trust:** Pseudonimisasi SHA-256 berentropi tinggi pada `customer_unique_id`.
 - **Strategi Muat Hibrida:** Deteksi otomatis antara Full Load (`WRITE_TRUNCATE`) saat gudang data kosong dan Incremental Delta Load (`WRITE_APPEND`) via watermark.
 - **Penyimpanan Terpisah 3 Zona:** Alur pemrosesan data lokal terstruktur (`staging/`, `clean/`, `rejected/`).
-- **Demo dan tes terisolasi:** Tiga DAG manual menguji data bersih serta skenario di bawah dan di atas ambang QDC tanpa menulis ke dataset dashboard. CI menguji ketiganya dengan data sintetis.
+- **Demo dan tes terisolasi:** Empat DAG manual memperagakan data bersih, ambang QDC, dan muat inkremental tanpa menulis ke dataset dashboard. CI menguji skenario tersebut dengan data sintetis.
 
 ---
 
@@ -227,7 +227,7 @@ ecommerce-etl-airflow-bigquery/
 ├── dags/
 │   ├── olist_etl_pipeline.py     # DAG utama 5 task dengan integrasi QDC gate
 │   ├── olist_etl_baseline_noqdc.py # DAG baseline pembanding tanpa gerbang kualitas
-│   └── olist_presentation_demos.py # Tiga DAG presentasi terisolasi
+│   └── olist_presentation_demos.py # Empat DAG presentasi terisolasi
 ├── data/
 │   ├── processed/                # Area pemrosesan data lokal
 │   │   ├── clean/                # Berkas Parquet tervalidasi siap muat ke BigQuery
@@ -244,7 +244,7 @@ ecommerce-etl-airflow-bigquery/
 │       ├── qdc.py                # Mesin validasi Quality Dimensions Check 4 dimensi
 │       └── self_check.py         # Suite pengujian unit 19 assertion logika sistem
 ├── tests/
-│   ├── test_airflow_dags.py       # Impor dan dependensi task pada lima DAG
+│   ├── test_airflow_dags.py       # Impor dan dependensi task pada enam DAG
 │   ├── test_presentation_demos.py # Hasil demo dan isolasi dataset
 │   └── test_qdc_boundary.py      # Pengujian unit kondisi batas fail-fast QDC
 ├── docker-compose.yml            # 7 layanan mikro Airflow (Webserver, Scheduler, Worker, Redis, Postgres)
@@ -297,19 +297,26 @@ Jalankan stack Compose dari direktori repositori. Menyalakan Docker saja belum m
 | :--- | :--- |
 | `demo_pipeline` | Semua task sukses. Memuat 112.650 baris fakta ke `olist_demo_pipeline`. |
 | `demo_noise-2` | QDC menolak 2.252 baris dan memuat 110.398 baris valid ke `olist_demo_noise_2`. |
-| `demo_noise-8` | QDC menolak 9.012 baris, melebihi ambang 5%. Run memang gagal: `load` berstatus `upstream_failed` dan dataset tidak dibuat. |
+| `demo_noise-8` | QDC menolak 9.012 baris, melebihi ambang 5%. QDC mencoba ulang tiga kali dengan jeda lima menit, lalu run gagal dan `load` berstatus `upstream_failed`. Run ini tidak membuat atau memuat dataset. |
+| `demo_incremental` | Menggunakan dataset `olist_demo_incremental` untuk memperagakan muat awal, append berdasarkan watermark, dan pelewatan load saat tidak ada fakta baru. |
 
-Angka tersebut berasal dari gladi dengan data Olist lengkap. Setiap run memakai direktori staging sendiri. Injeksi noise hanya mengubah salinan, dan DAG demo tidak menulis ke `olist_dw`. Dua skenario yang memuat data membutuhkan internet dan kredensial BigQuery yang dapat membuat serta menulis ke dataset demo.
+Angka untuk tiga demo snapshot berasal dari gladi dengan data Olist lengkap. Setiap run memakai direktori staging sendiri. Injeksi noise hanya mengubah salinan, dan DAG demo tidak menulis ke `olist_dw` atau dataset yang dikonfigurasi sebagai `BIGQUERY_DATASET`. Skenario yang memuat data membutuhkan internet dan kredensial BigQuery yang dapat membuat serta menulis ke dataset demo.
 
-Untuk menjelaskan hasil, buka **Graph** dan log `qdc_validation`. Jika koneksi bermasalah, buka riwayat gladi pada Airflow lokal jika masih tersedia. Semua DAG saat ini bersifat manual (`schedule=None`) dan belum mendukung backfill historis. DAG utama memakai watermark gudang data, sedangkan demo membaca snapshot penuh, bukan interval data Airflow.
+Untuk memperagakan `demo_incremental`, picu DAG beberapa kali dengan sumber yang sama:
+
+1. Jika `olist_demo_incremental.fact_sales` belum ada atau kosong, run pertama memuat batch awal hingga tanggal tengah dari daftar tanggal transaksi unik yang terurut menggunakan `WRITE_TRUNCATE`. Sumber harus memiliki transaksi pada sedikitnya dua tanggal.
+2. Run berikutnya membaca `MAX(order_date)` sebagai watermark dan menambahkan fakta bertanggal lebih baru dengan `WRITE_APPEND`. Tabel dimensi dimuat ulang.
+3. Jika tidak ada fakta baru dan QDC lulus, task `load` melewati pemuatan semua tabel. Jika tabel fakta sudah berisi data sebelum demo, run memakai watermark yang ada dan tidak mengulangi batch awal.
+
+Filter memakai tanggal yang lebih besar daripada watermark. Transaksi yang datang terlambat pada tanggal watermark atau sebelumnya dapat terlewat. Untuk menjelaskan hasil, buka **Graph** dan log `extract`, `transform`, `qdc_validation`, serta `load`. Semua DAG bersifat manual (`schedule=None`) dan belum mendukung backfill historis. Tiga demo snapshot memproses data penuh, sedangkan `demo_incremental` memfilter fakta berdasarkan watermark, bukan interval data Airflow.
 
 ---
 
 ## 🧪 Pengujian dan Verifikasi
 
-[GitHub Actions](https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery/actions/workflows/ci.yml) memvalidasi Compose, membangun image Airflow, memeriksa dependensi dan lint, lalu menjalankan `self_check.py` dan seluruh suite `pytest`. [Run CI yang diverifikasi](https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery/actions/runs/44485935390) meluluskan 19 tes, 6 subtes, dan 19 pemeriksaan mandiri.
+[GitHub Actions](https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery/actions/workflows/ci.yml) memvalidasi Compose, membangun image Airflow, memeriksa dependensi dan lint, lalu menjalankan `self_check.py` dan seluruh suite `pytest`. Salah satu [run CI sebelumnya](https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery/actions/runs/44485935390) meluluskan 19 tes, 6 subtes, dan 19 pemeriksaan mandiri.
 
-CI memeriksa kelima DAG serta menjalankan ketiga demo dengan data sintetis dan tiruan klien BigQuery di kontainer tanpa jaringan. CI tidak menguji login browser, stack Celery aktif, atau akses BigQuery asli. Untuk memeriksanya, lakukan gladi di mesin presentasi.
+CI memeriksa enam DAG serta menjalankan empat demo dengan data sintetis dan tiruan klien BigQuery di kontainer tanpa jaringan. CI tidak menguji login browser, stack Celery aktif, atau akses BigQuery asli. Untuk memeriksanya, lakukan gladi di mesin presentasi.
 
 Untuk pemeriksaan operasional lokal pada stack aktif dan dataset BigQuery yang dikonfigurasi:
 

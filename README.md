@@ -69,7 +69,7 @@ This project engineers an enterprise-grade, automated ELT data pipeline for the 
 - **Zero-Trust PII Protection:** High-entropy SHA-256 pseudonymization on `customer_unique_id`.
 - **Hybrid Load Strategy:** Automatic detection between Full Load (`WRITE_TRUNCATE`) on an empty warehouse and Incremental Delta Load (`WRITE_APPEND`) via high-watermark querying.
 - **Decoupled 3-Tier Storage:** Structured local processing pipeline (`staging/`, `clean/`, `rejected/`).
-- **Isolated demos and tests:** Three manual demo DAGs exercise clean data and both sides of the QDC threshold without writing to the dashboard dataset. CI tests these scenarios with synthetic data.
+- **Isolated demos and tests:** Four manual demo DAGs exercise clean data, the QDC threshold, and incremental loading without writing to the dashboard dataset. CI tests these scenarios with synthetic data.
 
 ---
 
@@ -227,7 +227,7 @@ ecommerce-etl-airflow-bigquery/
 ├── dags/
 │   ├── olist_etl_pipeline.py     # Production 5-task ELT DAG with integrated QDC gate
 │   ├── olist_etl_baseline_noqdc.py # Benchmark baseline DAG without quality gate
-│   └── olist_presentation_demos.py # Three isolated presentation DAGs
+│   └── olist_presentation_demos.py # Four isolated presentation DAGs
 ├── data/
 │   ├── processed/                # Local runtime data processing
 │   │   ├── clean/                # Validated Parquet files ready for BigQuery
@@ -244,7 +244,7 @@ ecommerce-etl-airflow-bigquery/
 │       ├── qdc.py                # 4-dimensional Quality Dimensions Check engine
 │       └── self_check.py         # 19-assertion unit verification suite
 ├── tests/
-│   ├── test_airflow_dags.py       # Imports and task dependencies for all five DAGs
+│   ├── test_airflow_dags.py       # Imports and task dependencies for all six DAGs
 │   ├── test_presentation_demos.py # Demo behavior and dataset isolation
 │   └── test_qdc_boundary.py      # Unit tests for QDC fail-fast boundary logic
 ├── docker-compose.yml            # 7 Airflow services (Webserver, Scheduler, Worker, Redis, Postgres)
@@ -297,19 +297,26 @@ Start the Compose stack from the repository root, not just Docker. On Windows wi
 | :--- | :--- |
 | `demo_pipeline` | All tasks succeed. Loads 112,650 fact rows into `olist_demo_pipeline`. |
 | `demo_noise-2` | QDC rejects 2,252 rows and loads 110,398 valid rows into `olist_demo_noise_2`. |
-| `demo_noise-8` | QDC rejects 9,012 rows, above the 5% threshold. The run is expected to fail: `load` is `upstream_failed` and no dataset is created. |
+| `demo_noise-8` | QDC rejects 9,012 rows, above the 5% threshold. QDC retries three times at five-minute intervals, then the run fails and `load` is `upstream_failed`. This run does not create or load a dataset. |
+| `demo_incremental` | Uses the `olist_demo_incremental` dataset to demonstrate an initial load, a watermark-based append, and a skipped load when no new fact rows are available. |
 
-These counts come from the rehearsal with the full Olist input. Each run uses its own staging directory. Noise affects only a copy, and the demo DAGs do not write to `olist_dw`. The two successful load scenarios require internet access and BigQuery credentials that can create and write to the demo datasets.
+The counts for the three snapshot demos come from the rehearsal with the full Olist input. Each run uses its own staging directory. Noise affects only a copy, and the demo DAGs do not write to `olist_dw` or the dataset configured as `BIGQUERY_DATASET`. Scenarios that load data require internet access and BigQuery credentials that can create and write to the demo datasets.
 
-To explain the outcome, open **Graph** and the `qdc_validation` log. If the connection is unavailable, open a previous successful rehearsal stored in the local Airflow instance, if available. All current DAGs are manual (`schedule=None`) and do not support historical backfill. The main DAG uses a warehouse watermark, while the demos read a full snapshot rather than an Airflow data interval.
+To demonstrate `demo_incremental`, trigger the DAG multiple times with the same input:
+
+1. If `olist_demo_incremental.fact_sales` is missing or empty, the first run loads an initial batch through the middle date in the sorted list of unique transaction dates using `WRITE_TRUNCATE`. The input must contain transactions on at least two dates.
+2. The next run reads `MAX(order_date)` as the watermark and appends newer fact rows with `WRITE_APPEND`. It reloads the dimension tables.
+3. If there are no new fact rows and QDC passes, the `load` task skips all table loads. If the fact table already contains data before the demo, the run uses its existing watermark instead of repeating the initial batch.
+
+The filter selects dates greater than the watermark. Transactions arriving late on or before the watermark date can be missed. To explain the outcome, open **Graph** and the `extract`, `transform`, `qdc_validation`, and `load` logs. All DAGs are manual (`schedule=None`) and do not support historical backfill. The three snapshot demos process the full input, while `demo_incremental` filters fact rows by watermark rather than by the Airflow data interval.
 
 ---
 
 ## 🧪 Verification & Testing
 
-[GitHub Actions](https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery/actions/workflows/ci.yml) validates Compose, builds the Airflow image, checks dependencies and lint, and runs `self_check.py` and the full `pytest` suite. The [verified CI run](https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery/actions/runs/44485935390) passed 19 tests, 6 subtests, and 19 self-checks.
+[GitHub Actions](https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery/actions/workflows/ci.yml) validates Compose, builds the Airflow image, checks dependencies and lint, and runs `self_check.py` and the full `pytest` suite. A [previous verified CI run](https://github.com/virgiawanprima/ecommerce-etl-airflow-bigquery/actions/runs/44485935390) passed 19 tests, 6 subtests, and 19 self-checks.
 
-CI checks all five DAGs and runs the three demos with synthetic input and a mocked BigQuery client in a network-disabled container. It does not test browser login, the live Celery stack, or BigQuery access. Rehearse on the presentation machine for those checks.
+CI checks six DAGs and runs four demos with synthetic input and a mocked BigQuery client in a network-disabled container. It does not test browser login, the live Celery stack, or BigQuery access. Rehearse on the presentation machine for those checks.
 
 For local operational checks against the running stack and the configured BigQuery dataset:
 
