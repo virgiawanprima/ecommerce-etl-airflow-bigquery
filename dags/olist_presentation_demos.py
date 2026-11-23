@@ -1,9 +1,9 @@
-"""Tiga DAG manual untuk mendemonstrasikan QDC tanpa menulis ke dataset utama."""
+"""DAG manual untuk mendemonstrasikan QDC dan incremental load di dataset demo."""
 from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 from random import Random
@@ -12,10 +12,12 @@ from airflow.sdk import DAG, get_current_context, task
 
 RAW = Path("/opt/airflow/data/raw")
 DEMO_ROOT = Path("/opt/airflow/data/processed/presentation_demos")
+INCREMENTAL_DEMO = "demo_incremental"
 SCENARIOS = {
     "demo_pipeline": (0, "olist_demo_pipeline", "Data bersih: semua tahap lulus"),
     "demo_noise-2": (2, "olist_demo_noise_2", "Noise 2%: baris valid tetap dimuat"),
     "demo_noise-8": (8, "olist_demo_noise_8", "Noise 8%: QDC menghentikan load"),
+    INCREMENTAL_DEMO: (0, "olist_demo_incremental", "Full load awal, lalu append pesanan setelah watermark"),
 }
 SOURCES = {
     "orders": ("olist_orders_dataset.csv", ("order_id", "customer_id", "order_status", "order_purchase_timestamp")),
@@ -48,6 +50,40 @@ def _workspace() -> Path:
     dag_id = context["dag"].dag_id
     run_key = sha256(context["run_id"].encode()).hexdigest()[:24]
     return DEMO_ROOT / dag_id / run_key
+
+
+def _demo_dataset(dag_id: str) -> str:
+    _, dataset_id, _ = SCENARIOS[dag_id]
+    protected = {"olist_dw", os.environ.get("BIGQUERY_DATASET", "").strip().lower()}
+    if not dataset_id.startswith("olist_demo_") or dataset_id.lower() in protected:
+        raise RuntimeError(f"Dataset bukan tujuan demo yang diizinkan: {dataset_id}")
+    return dataset_id
+
+
+def _query_watermark(dataset_id: str) -> date | None:
+    from google.api_core.exceptions import Forbidden, NotFound
+    from google.cloud import bigquery
+
+    client = bigquery.Client(project=os.environ["GCP_PROJECT_ID"], location=os.environ["BIGQUERY_LOCATION"])
+    table = f"{client.project}.{dataset_id}.fact_sales"
+    try:
+        watermark = next(iter(client.query(f"SELECT MAX(order_date) AS wm FROM `{table}`").result())).wm
+    except NotFound:
+        logger.info("Watermark %s: tabel atau dataset belum tersedia; mode=FULL", table)
+        return None
+    except Forbidden:
+        logger.error("Watermark %s: akses ditolak; extract dihentikan, tidak beralih ke FULL", table)
+        raise
+    if watermark is None:
+        logger.info("Watermark %s: MAX(order_date) kosong; mode=FULL", table)
+        return None
+    logger.info("Watermark %s: MAX(order_date)=%s; mode=INCREMENTAL", table, watermark)
+    return watermark
+
+
+def _read_watermark(workspace: Path) -> date | None:
+    value = (workspace / "watermark.txt").read_text(encoding="utf-8").strip()
+    return date.fromisoformat(value) if value else None
 
 
 def _inject_noise(source: Path, destination: Path, rate: int) -> None:
@@ -88,17 +124,27 @@ def _inject_noise(source: Path, destination: Path, rate: int) -> None:
 
 @task
 def extract() -> str:
-    """Ambil snapshot CSV untuk satu run, tanpa watermark atau simulasi DAG utama."""
+    """Ambil snapshot CSV dan catat watermark untuk skenario incremental."""
     import pandas as pd
 
-    dag_id = get_current_context()["dag"].dag_id
-    rate, _, _ = SCENARIOS[dag_id]
+    context = get_current_context()
+    dag_id = context["dag"].dag_id
+    rate, _, description = SCENARIOS[dag_id]
+    dataset_id = _demo_dataset(dag_id)
     workspace = _workspace()
     if workspace.resolve().is_relative_to(RAW.resolve()) or not workspace.resolve().is_relative_to(DEMO_ROOT):
         raise RuntimeError("Folder staging demo tidak terisolasi.")
     staging = workspace / "staging"
     staging.mkdir(parents=True, exist_ok=True)
-    logger.info("Full load demo: noise=%s%%, staging=%s", rate, staging)
+    logger.info(
+        "Extract demo %s: run_id=%s; dataset=%s; skenario=%s; noise target=%s%%; staging=%s",
+        dag_id, context["run_id"], dataset_id, description, rate, staging,
+    )
+    if dag_id == INCREMENTAL_DEMO:
+        watermark = _query_watermark(dataset_id)
+        (workspace / "watermark.txt").write_text(watermark.isoformat() if watermark else "", encoding="utf-8")
+    else:
+        logger.info("Mode demo %s: FULL; snapshot penuh tanpa kueri watermark", dag_id)
     for alias, (filename, _) in SOURCES.items():
         source = RAW / filename
         if alias == "order_items" and rate:
@@ -107,7 +153,10 @@ def extract() -> str:
             source = noise_copy
         frame = pd.read_csv(source)
         frame.to_parquet(staging / f"{alias}.parquet", index=False)
-        logger.info("Extract %s: %s baris", alias, len(frame))
+        logger.info(
+            "Extract %s: sumber=%s; baris=%s; salinan noise=%s",
+            alias, filename, len(frame), "ya" if source != RAW / filename else "tidak",
+        )
     return str(workspace)
 
 
@@ -160,6 +209,27 @@ def transform(workspace: str) -> str:
     timestamps = pd.to_datetime(fact["order_purchase_timestamp"])
     fact["order_date"] = timestamps.dt.date
     fact["date_key"] = pd.to_numeric(timestamps.dt.strftime("%Y%m%d"), errors="coerce").astype("Int64")
+    if get_current_context()["dag"].dag_id == INCREMENTAL_DEMO:
+        source_rows = len(fact)
+        watermark = _read_watermark(root)
+        if watermark is None:
+            purchase_dates = sorted(fact["order_date"].dropna().unique())
+            if len(purchase_dates) < 2:
+                raise ValueError("Demo incremental membutuhkan transaksi pada minimal dua tanggal.")
+            cutoff = purchase_dates[(len(purchase_dates) - 1) // 2]
+            fact = fact.loc[(timestamps.dt.normalize() <= pd.Timestamp(cutoff)) | timestamps.isna()]
+            logger.info(
+                "Transform fact_sales: mode=FULL; tanggal batch awal <= %s; "
+                "kandidat QDC=%s/%s; baris disisihkan untuk run berikutnya=%s",
+                cutoff, len(fact), source_rows, source_rows - len(fact),
+            )
+        else:
+            fact = fact.loc[timestamps.dt.normalize() > pd.Timestamp(watermark)]
+            logger.info(
+                "Transform fact_sales: mode=INCREMENTAL; order_date > %s; "
+                "kandidat QDC=%s/%s; baris di luar filter=%s",
+                watermark, len(fact), source_rows, source_rows - len(fact),
+            )
     tables["fact_sales"] = fact[list(FACT_COLUMNS)]
 
     for name, frame in tables.items():
@@ -183,6 +253,7 @@ def qdc_validation(workspace: str) -> str:
     rejected = root / "rejected"
     rejected.mkdir(exist_ok=True)
     failures: list[str] = []
+    tables_with_rejections = 0
     for name in ("fact_sales", *DIMENSION_RULES):
         frame = pd.read_parquet(root / "transformed" / f"{name}.parquet")
         if name == "fact_sales":
@@ -201,6 +272,7 @@ def qdc_validation(workspace: str) -> str:
             passed, failed, result = run_qdc(frame, name, required, keys)
 
         if not failed.empty:
+            tables_with_rejections += 1
             error_log = rejected / f"{name}_error_log.csv"
             failed.to_csv(error_log, index=False)
             logger.warning("%s: baris ditolak dicatat di %s; alasan=%s", name, error_log, result.failure_reasons)
@@ -210,19 +282,34 @@ def qdc_validation(workspace: str) -> str:
 
     if failures:
         raise ValueError(f"QDC fail-fast (>{FAIL_FAST_THRESHOLD:.0%}); load diblokir: {'; '.join(failures)}")
+    logger.info(
+        "QDC selesai: %s tabel diperiksa; %s tabel dengan penolakan; "
+        "tidak ada tabel yang melampaui ambang %s; load diizinkan",
+        1 + len(DIMENSION_RULES), tables_with_rejections, f"{FAIL_FAST_THRESHOLD:.0%}",
+    )
     return workspace
 
 
 @task
 def load(workspace: str) -> None:
     import pandas as pd
+    from google.api_core.exceptions import Conflict
     from google.cloud import bigquery
 
     dag_id = get_current_context()["dag"].dag_id
-    _, dataset_id, _ = SCENARIOS[dag_id]
-    protected = {"olist_dw", os.environ.get("BIGQUERY_DATASET", "").strip().lower()}
-    if not dataset_id.startswith("olist_demo_") or dataset_id.lower() in protected:
-        raise RuntimeError(f"Dataset bukan tujuan demo yang diizinkan: {dataset_id}")
+    dataset_id = _demo_dataset(dag_id)
+    clean = Path(workspace) / "clean"
+    watermark = _read_watermark(Path(workspace)) if dag_id == INCREMENTAL_DEMO else None
+    mode = "INCREMENTAL" if watermark is not None else "FULL"
+    logger.info("Load demo %s: dataset=%s; mode=%s; watermark=%s", dag_id, dataset_id, mode, watermark)
+    fact = pd.read_parquet(clean / "fact_sales.parquet") if watermark is not None else None
+    if fact is not None and fact.empty:
+        logger.info(
+            "Load %s.fact_sales: mode=INCREMENTAL; watermark=%s; 0 baris lolos QDC; "
+            "pemuatan dilewati untuk semua tabel",
+            dataset_id, watermark,
+        )
+        return
 
     location = os.environ["BIGQUERY_LOCATION"]
     client = bigquery.Client(project=os.environ["GCP_PROJECT_ID"], location=location)
@@ -234,18 +321,42 @@ def load(workspace: str) -> None:
     if target.labels.get("purpose") != "olist_presentation" or target.location != location:
         raise RuntimeError(f"Dataset tidak ditandai khusus presentasi atau lokasinya berbeda: {dataset_id}")
 
-    clean = Path(workspace) / "clean"
+    total_written = 0
     for name in (*DIMENSION_RULES, "fact_sales"):
-        frame = pd.read_parquet(clean / f"{name}.parquet")
-        config = bigquery.LoadJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
+        append = name == "fact_sales" and watermark is not None
+        frame = fact if append else pd.read_parquet(clean / f"{name}.parquet")
+        disposition = bigquery.WriteDisposition.WRITE_APPEND if append else bigquery.WriteDisposition.WRITE_TRUNCATE
+        config = bigquery.LoadJobConfig(write_disposition=disposition)
         if name == "fact_sales":
             frame["order_date"] = pd.to_datetime(frame["order_date"]).dt.date
             config.schema = [
                 bigquery.SchemaField(column, "FLOAT64") for column in AMOUNTS
             ] + [bigquery.SchemaField("order_date", "DATE")]
         destination = target.reference.table(name)
-        job = client.load_table_from_dataframe(frame, destination, job_config=config).result()
-        logger.info("Load %s: %s baris, job=%s", destination, job.output_rows, job.job_id)
+        if append:
+            job_id = f"olist_demo_incremental_{Path(workspace).name}"
+            try:
+                pending = client.load_table_from_dataframe(frame, destination, job_config=config, job_id=job_id)
+            except Conflict:
+                pending = client.get_job(job_id, location=location)
+                logger.info("Load %s: melanjutkan job append yang sudah tercatat: %s", destination, job_id)
+        else:
+            pending = client.load_table_from_dataframe(frame, destination, job_config=config)
+        job = pending.result()
+        total_written += job.output_rows or 0
+        logger.info(
+            "Load %s: %s; baris siap=%s; baris hasil job=%s; job_id=%s",
+            destination, disposition, len(frame), job.output_rows, job.job_id,
+        )
+        if dag_id == INCREMENTAL_DEMO and name == "fact_sales":
+            logger.info(
+                "Ringkasan fact_sales: watermark awal=%s; tanggal terakhir batch yang dimuat=%s",
+                watermark, frame["order_date"].max() if len(frame) else None,
+            )
+    logger.info(
+        "Load selesai: dataset=%s; mode=%s; tabel=%s; total baris hasil job=%s",
+        dataset_id, mode, 1 + len(DIMENSION_RULES), total_written,
+    )
 
 
 def _build_demo(dag_id: str, description: str) -> DAG:
@@ -260,10 +371,12 @@ def _build_demo(dag_id: str, description: str) -> DAG:
         default_args={"owner": "virgiawan", "retries": 0},
         tags=["demo", "skripsi", "qdc"],
     ) as demo:
-        load(qdc_validation(transform(validate_schema(extract()))))
+        qdc = qdc_validation.override(retries=3, retry_delay=timedelta(minutes=5)) if dag_id == "demo_noise-8" else qdc_validation
+        load(qdc(transform(validate_schema(extract()))))
     return demo
 
 
 demo_pipeline = _build_demo("demo_pipeline", SCENARIOS["demo_pipeline"][2])
 demo_noise_2 = _build_demo("demo_noise-2", SCENARIOS["demo_noise-2"][2])
 demo_noise_8 = _build_demo("demo_noise-8", SCENARIOS["demo_noise-8"][2])
+demo_incremental = _build_demo(INCREMENTAL_DEMO, SCENARIOS[INCREMENTAL_DEMO][2])

@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import timedelta
 
 from airflow.models import DagBag
 from airflow.timetables.simple import NullTimetable
@@ -15,6 +16,7 @@ def test_repository_dags_import_and_have_expected_dependencies() -> None:
         "demo_pipeline": full,
         "demo_noise-2": full,
         "demo_noise-8": full,
+        "demo_incremental": full,
     }
     assert expected.keys() <= bag.dags.keys()
     for dag_id, chain in expected.items():
@@ -27,4 +29,9 @@ def test_repository_dags_import_and_have_expected_dependencies() -> None:
         if dag_id.startswith("demo"):
             assert isinstance(dag.timetable, NullTimetable)
             assert dag.max_active_runs == 1
-            assert all(task.retries == 0 for task in dag.tasks)
+            for task in dag.tasks:
+                if dag_id == "demo_noise-8" and task.task_id == "qdc_validation":
+                    assert task.retries == 3
+                    assert task.retry_delay == timedelta(minutes=5)
+                else:
+                    assert task.retries == 0
