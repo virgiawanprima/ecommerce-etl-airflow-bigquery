@@ -156,7 +156,7 @@ def run_qdc(
     Mengembalikan:
         passed_df: baris yang memenuhi seluruh dimensi
         failed_df: baris yang gagal pada minimal satu dimensi, dilengkapi
-                   kolom penanda alasan kegagalan
+                    kolom penanda alasan kegagalan
         result: objek ringkasan QDCResult
     """
     expected_dtypes = expected_dtypes or {}
