@@ -302,6 +302,8 @@ Start the Compose stack from the repository root, not just Docker. On Windows wi
 
 The counts for the three snapshot demos come from the rehearsal with the full Olist input. Each run uses its own staging directory. Noise affects only a copy, and the demo DAGs do not write to `olist_dw` or the dataset configured as `BIGQUERY_DATASET`. Scenarios that load data require internet access and BigQuery credentials that can create and write to the demo datasets.
 
+New demo datasets default to tables expiring 60 days after creation. Changing a dataset's default does not change the expiration of existing tables.
+
 To demonstrate `demo_incremental`, trigger the DAG multiple times with the same input:
 
 1. If `olist_demo_incremental.fact_sales` is missing or empty, the first run loads an initial batch through the middle date in the sorted list of unique transaction dates using `WRITE_TRUNCATE`. The input must contain transactions on at least two dates.

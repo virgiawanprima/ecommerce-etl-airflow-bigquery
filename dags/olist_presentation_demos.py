@@ -316,7 +316,7 @@ def load(workspace: str) -> None:
     requested = bigquery.Dataset(f"{client.project}.{dataset_id}")
     requested.location = location
     requested.labels = {"purpose": "olist_presentation"}
-    requested.default_table_expiration_ms = 7 * 24 * 60 * 60 * 1000
+    requested.default_table_expiration_ms = 60 * 24 * 60 * 60 * 1000
     target = client.create_dataset(requested, exists_ok=True)
     if target.labels.get("purpose") != "olist_presentation" or target.location != location:
         raise RuntimeError(f"Dataset tidak ditandai khusus presentasi atau lokasinya berbeda: {dataset_id}")

@@ -302,6 +302,8 @@ Jalankan stack Compose dari direktori repositori. Menyalakan Docker saja belum m
 
 Angka untuk tiga demo snapshot berasal dari gladi dengan data Olist lengkap. Setiap run memakai direktori staging sendiri. Injeksi noise hanya mengubah salinan, dan DAG demo tidak menulis ke `olist_dw` atau dataset yang dikonfigurasi sebagai `BIGQUERY_DATASET`. Skenario yang memuat data membutuhkan internet dan kredensial BigQuery yang dapat membuat serta menulis ke dataset demo.
 
+Dataset demo baru memiliki default masa berlaku tabel 60 hari sejak tabel dibuat. Mengubah default dataset tidak mengubah waktu kedaluwarsa tabel yang sudah ada.
+
 Untuk memperagakan `demo_incremental`, picu DAG beberapa kali dengan sumber yang sama:
 
 1. Jika `olist_demo_incremental.fact_sales` belum ada atau kosong, run pertama memuat batch awal hingga tanggal tengah dari daftar tanggal transaksi unik yang terurut menggunakan `WRITE_TRUNCATE`. Sumber harus memiliki transaksi pada sedikitnya dua tanggal.

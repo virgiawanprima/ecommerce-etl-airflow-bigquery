@@ -58,6 +58,26 @@ def task_callables(dag_id: str) -> list[Callable[..., object]]:
     return [dag.get_task(name).python_callable for name in ("extract", "validate_schema", "transform", "qdc_validation", "load")]
 
 
+@pytest.mark.parametrize("dag_id", list(demos.SCENARIOS))
+def test_demo_dataset_default_expiration(
+    demo_environment: tuple[Path, Path, Mock], monkeypatch: pytest.MonkeyPatch, dag_id: str,
+) -> None:
+    _, root, factory = demo_environment
+    dag = getattr(demos, dag_id.replace("-", "_"))
+    monkeypatch.setattr(demos, "get_current_context", lambda: {"dag": dag})
+    monkeypatch.setattr(pd, "read_parquet", lambda _: pd.DataFrame({"order_date": ["2018-01-01"]}))
+    workspace = root / dag_id / "expiration_test"
+    workspace.mkdir(parents=True)
+    if dag_id == demos.INCREMENTAL_DEMO:
+        (workspace / "watermark.txt").write_text("", encoding="utf-8")
+
+    task_callables(dag_id)[-1](str(workspace))
+
+    requested = factory.return_value.create_dataset.call_args.args[0]
+    assert requested.dataset_id == demos.SCENARIOS[dag_id][1]
+    assert requested.default_table_expiration_ms == 60 * 24 * 60 * 60 * 1000
+
+
 @pytest.mark.parametrize(
     ("dag_id", "dataset_id", "rejected", "written"),
     [
